@@ -48,6 +48,7 @@
 !.mailmap
 !AUTHORS
 !autogen.sh
+!CLAUDE.md
 !CODE_OF_CONDUCT.md
 !configure.ac
 !copy-builtin

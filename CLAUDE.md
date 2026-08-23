@@ -423,45 +423,94 @@ config, not a shared runner limitation.
        is something deeper in `zfs_do_get()`'s argument handling in
        `cmd/zfs/zfs_main.c` (likely how it manually scans for stray
        dash-prefixed operands after `getopt()` finishes) — not found.
-   - **`rsend/send-c_stream_size_estimate` — real product bug, root
-     cause pinned precisely, fixed (2026-08-23) after the user asked
-     for a real attempt.** Traced past the original `bc: bad
-     expression` symptom (downstream side effect) to genuinely
-     corrupted `zfs send -nP` output. Precise diagnosis via `strace -f`
-     on `-e trace=write,writev,clone,tkill,lseek`: the "full" line's
-     `writev()` succeeds and returns the correct byte count; an
-     `lseek(fd, 0, SEEK_CUR)`/`ftello(3)` check immediately afterward
-     both correctly report the true post-write offset; yet the very
-     next `printf(3)` call to the same stream still lands its output at
-     file offset 0, overwriting the start of the file — byte-exact:
-     the number of bytes clobbered always equals the length of what
-     that next call wrote. This reliably follows
-     `estimate_size()`/`dump_snapshot()` in `lib/libzfs/
-     libzfs_sendrecv.c` creating a `send_progress_thread` (`pthread_
-     create`) and tearing it down via `send_progress_thread_exit()`
-     (`pthread_cancel` + `pthread_join`) shortly before the write.
-     Tried and empirically ruled out: an extra `fflush()` between the
-     writes (no effect, still corrupts). What actually and reliably
-     fixes it: bypassing `printf(3)`'s buffered path entirely for
-     these writes — build the complete line with `snprintf()`, then
-     emit it with one direct `write(2)` call. The *exact* libc-internal
-     mechanism (why `printf(3)`'s notion of "current position" would
-     diverge from what `lseek`/`ftello` both correctly report,
-     specifically after that thread create/cancel/join sequence) was
-     **not** fully pinned down — the fix is proven correct via
-     extensive repeated empirical testing (single-snapshot `-nP` and
-     multi-snapshot `-nPR` replicate, both correct after the fix; the
-     latter is the scenario `send_print_verbose()`'s multi-line output
-     exists for, and was not itself proven broken before the fix — only
-     the always-thread-preceded `estimate_size()`/`"size\t...\n"` call
-     sites were proven broken — but fixed defensively for consistency
-     since it shares the exact vulnerable pattern), not by fully
-     explaining musl's internals.
+   - **`rsend/send-c_stream_size_estimate` — real product bug, TRUE
+     root cause found (2026-08-23, second pass after the fix already
+     landed — see below), and it is not a libc/musl bug at all.**
+     Traced past the original `bc: bad expression` symptom to
+     genuinely corrupted `zfs send -nP` output: the "full" and "size"
+     lines interleave, with exactly the size line's byte length
+     missing from the front of the full line.
+     - **First pass (led to the committed fix, still correct as a
+       mitigation):** `strace -f` showed the "full" line's `writev()`
+       succeeding with the correct byte count, `lseek`/`ftello(3)`
+       immediately after correctly reporting the true offset, yet the
+       *next* `printf(3)` call to the same stream still landed at file
+       offset 0. This correlated with `estimate_size()` having just
+       created/cancelled/joined a `send_progress_thread`, so the fix
+       (bypass `printf(3)`'s buffering — build each line with
+       `snprintf()`, emit with one `write(2)`) was written and lands
+       in `claude/send_progress_race` (`32d09c43d`). It works (77/79
+       `rsend/` regression clean, 8/8 manual repro) but the writeup at
+       the time honestly flagged that the *why* wasn't pinned down at
+       the libc level.
+     - **Second pass, the actual mechanism (this session, per the
+       user's explicit "dig into libc" ask):** built musl 1.2.6 from
+       the local `~/Development/musl` checkout, read
+       `src/stdio/__stdio_write.c`, `__towrite.c`, `ftell.c`,
+       `fseek.c`, and the cancellation internals in
+       `src/thread/pthread_cancel.c` — nothing there explains a
+       cross-stream position corruption (the progress thread only
+       ever writes to `stderr`, never to `fout`, so there's no shared
+       `FILE*` for musl's per-file locking to even be relevant to).
+       A synthetic standalone repro isolating exactly the pthread_
+       create/cancel/join + two-fprintf-to-a-fresh-FILE pattern (no
+       ZFS code at all) ran **3000/3000 clean** — proving the musl
+       cancellation path itself is not the cause. Went back to the
+       real binary instead: swapped the pre-fix `libzfs_sendrecv.c`
+       into a scratch rebuild (`.libs/libzfs.so`, loaded via
+       `LD_LIBRARY_PATH` over the real installed/fixed one, so the
+       system `zfs` stayed on the fix throughout), reproduced
+       corruption 10/10 that way, then used `strace -f -tt -yy` with
+       **no** `-e` filter (a filtered trace had hidden the real
+       cause). That revealed a third thread doing:
+       `pipe2([5,6], O_CLOEXEC)` then
+       `splice(5, NULL, 1, NULL, 65536, SPLICE_F_MOVE|SPLICE_F_MORE)`
+       — **splicing directly into fd 1, the same fd `fout`'s buffered
+       writes target.** That thread is `send_worker` in
+       `lib/libzfs_core/libzfs_core.c`'s `lzc_send_wrapper()`: since
+       Linux 5.10 (`4d03e3cc5982`), `ZFS_IOC_SEND*` ioctls `EINVAL` on
+       kernel writes to fd types without iter ops (a plain file being
+       one), so whenever the destination fd isn't *already* a pipe
+       (`S_ISFIFO`), `lzc_send_wrapper()` transparently opens an
+       internal pipe, spawns a thread that `splice()`s from it to the
+       real destination fd, and hands the *pipe's write end* to the
+       actual ioctl instead — used even for a pure size estimate
+       (`lzc_send_space_resume_redacted()` calls it with
+       `orig_fd = STDOUT_FILENO`, unconditionally). **Confirmed
+       causal, not just correlated**, with a clean A/B: piping the
+       exact same command instead of redirecting to a regular file
+       (`zfs send -nP ... | cat > file`, which makes stdout a FIFO and
+       makes `lzc_send_wrapper()` take its no-thread fast-path) came
+       back **10/10 clean**; the direct-file-redirect form corrupted
+       **every time**. So the real bug is a race between
+       `send_worker`'s `splice()` (targeting the same fd) and the
+       calling code's own direct writes to that fd — not a libc
+       buffering quirk, and not specific to the progress thread's
+       cancellation at all (that was a correlated red herring: both
+       are triggered from the same `estimate_size()` call, so both
+       "just happened before" the corrupting write). Almost certainly
+       not Alpine/musl-specific either — Linux's `splice()`-to-a-
+       regular-file position handling not composing safely with a
+       concurrent direct writer on the same fd would reproduce on any
+       distro give the right scheduling; Alpine/this environment's
+       timing just seems to hit the race window very reliably.
+     - **Net effect on the existing fix**: `claude/send_progress_race`
+       stays committed and correct as a real, tested mitigation — it
+       just no longer needs the "libc-internal mechanism unknown"
+       caveat, replaced by "narrows the window against an
+       `lzc_send_wrapper()`-level race, doesn't close it structurally."
+       A more principled fix belongs in `lzc_send_wrapper()`/
+       `send_worker()` itself (e.g. not sharing the raw destination fd
+       between the splice-relay thread and the caller's own direct
+       writes) but that's a separate, more invasive change affecting
+       every `lzc_send_wrapper()` caller, not just the parsable-output
+       path — not attempted this session, flagged for the user to
+       decide whether it's worth a dedicated branch.
      - Branch `claude/send_progress_race` (`32d09c43d`): adds a
        `send_print_line()` helper (flush + single `write(2)`) to
-       `libzfs_sendrecv.c`, used
-       at all 3 sites that print `zfs send -P` output following a
-       progress-thread create/cancel/join cycle: `send_print_verbose()`'s
+       `libzfs_sendrecv.c`, used at all 3 sites that print
+       `zfs send -P` output following a progress-thread create/cancel/
+       join cycle: `send_print_verbose()`'s
        parsable branch (used by both `estimate_size()` and
        `dump_snapshot()`/`zfs_send_cb_impl()`), and both `"size\t%llu
        \n"` call sites. The non-parsable/human-readable verbose branch

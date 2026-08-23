@@ -27,6 +27,15 @@ tracks upstream `master`.
 - **Logs stay external to the zfs tree**, in the sibling `~/Development/
   logs/` directory — they're CI run artifacts, not source, and
   `claude/*` branches need to stay cherry-pick-clean for upstream PRs.
+- **Never force ZFS teardown.** No `SIGKILL`/`-9` on a process holding a
+  ZFS mount open, no lazy `umount -l` on a ZFS mount, no `zpool destroy
+  -f` on a pool reporting busy. Escalating through that sequence during
+  an interrupted test run wedged the (`--enable-debug`) kernel module
+  into a hang with nothing captured in pstore, and required an external
+  hard reboot to recover (2026-08-23). If a pool/process/unmount reports
+  busy: stop, investigate (`fuser`, lingering test processes), or let
+  the test harness's own cleanup/interrupt path handle it — don't force
+  it.
 - **Git identity convention**: real fixes intended for upstream are
   authored/signed-off as `Alexander Moch <mail@alexmoch.com>`, matching
   the precedent set by the three existing `claude/*` branches (DCO

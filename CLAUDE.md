@@ -266,34 +266,71 @@ Both split results into tests with known/expected non-PASS outcomes
    `zpool_status` `-c` (custom command) variants and their plain
    `_005_pos`/`_003_pos` siblings crash with `trap invalid opcode` /
    `segfault ... in ld-musl-x86_64.so.1`, reported via dmesg (`libshell.so`
-   involved). Distinct from cluster 4 (different crash signature). Root
-   cause **not yet investigated**.
-6. **Unexplained, not yet fully triaged**: `zfs_destroy_001_pos`/
-   `_005_neg` (fails with `ERROR: pgrep -fl mkbusy unexpectedly exited 0`
-   — smells like another BusyBox-vs-GNU tool behavior difference,
-   similar family to cluster 1, not yet confirmed), `zfs_unmount_001_neg`,
-   `zfs_list_002_pos`/`_003_pos`, `zpool_list_001_pos`, `rsend/
-   send-c_stream_size_estimate`, `zoned_uid_023/025/026_pos`,
-   `procfs_list_stale_read` (fails with `grep "Input/output error"` not
-   matching — the actual I/O error message text may differ on this
-   kernel/musl, not yet confirmed).
-   - **`zpool_split_props` — resolved, not actually its own bug**: fails
-     with the identical `mmp_set_hostid` error as the `mmp/*` cluster
-     (calls it directly, outside the `mmp/` test directory). Confirmed
-     fixed by `claude/mmp` alone (2026-08-23) — no new branch needed,
-     this is bonus coverage from that existing fix.
-   - **`zfs_get_006_neg` — investigated, ruled out `getopt_permute`**:
-     a negative test asserting `zfs get all -r` (and 27 similar
-     malformed invocations) must be *rejected*. The test itself already
-     sets `export POSIXLY_CORRECT=1` before running these, i.e. upstream
-     already anticipated glibc's `getopt()` permutation and forces
-     strict parsing — so this was a reasonable first guess, but manual
-     testing (2026-08-23) shows `zfs get all -r <pool>` still succeeds
-     (should fail) even under `POSIXLY_CORRECT=1`, ruling out the
-     getopt-permutation theory for this one. Real cause is something
-     deeper in `zfs_do_get()`'s argument handling in `cmd/zfs/
-     zfs_main.c` (likely how it manually scans for stray dash-prefixed
-     operands after `getopt()` finishes) — not yet found.
+   involved). Distinct from cluster 4 (different crash signature).
+   **Not reproduced (2026-08-23)**: ran all 9 of these tests
+   (`zpool_iostat_005_pos`, `zpool_iostat_-c_disable/homedir/searchpath`,
+   `zpool_status_003_pos`, `zpool_status_-c_disable/homedir/searchpath`,
+   plus `zfs_unmount_001_neg` from cluster 6 which lives in the same
+   `cli_user/` family) individually, correctly as the non-root `zfs` user
+   (they need `-u zfs`, not the `-t` default of root — running as root
+   trips a real, unrelated `zpool` safety check and gives a false FAIL,
+   a mistake made and corrected mid-session) — all 9 passed cleanly, no
+   crash, no dmesg entries. Same open question as cluster 4: genuinely
+   non-deterministic, or only manifests under the full suite's
+   accumulated state/memory pressure. Not resolved.
+6. **Cluster 6 triage, 2026-08-23** — went through the full original
+   list. Methodology note that applies to all of this: local `-t <path>`
+   runs default to root; several `cli_user/*` tests need `-u zfs`
+   (confirmed by a false-FAIL detour on the `-c` tests above) — always
+   check which user a test's directory section specifies in `tests/
+   runfiles/*.run` before trusting a local FAIL.
+   - **Resolved, not their own bugs**:
+     - `zpool_split_props` — identical `mmp_set_hostid` error as the
+       `mmp/*` cluster (calls it directly). Fixed by `claude/mmp` alone,
+       no new branch needed.
+     - `zoned_uid_023_pos`/`_025_pos`/`_026_pos` (and `_030_pos`, found
+       while checking scope) — `zoned_uid_common.kshlib`'s
+       `run_in_userns_caps()` needs `capsh` (from `libcap-utils`, not in
+       CI's Alpine dep list) for any `cap_spec` other than `"all"`;
+       without it, `"$(which capsh)"` is empty and the resulting
+       `unshare ... '' -- ...` fails with `unshare: failed to execute :
+       No such file or directory`. Fixed by new branch
+       `claude/libcap-utils` (CI-provisioning fix, same shape as
+       `claude/tzdata`). Bonus: `device_access_add` (cluster 7 SKIP, not
+       FAIL — it guards on `capsh`'s availability) now genuinely passes
+       too. `capsh` is also referenced by `device_access.kshlib` and
+       other `zoned_uid` tests not individually re-verified, so the real
+       scope may be wider than what's listed in that commit.
+     - `zfs_unmount_001_neg`, `zpool_iostat_005_pos`,
+       `zpool_iostat_-c_disable/homedir/searchpath`,
+       `zpool_status_003_pos`, `zpool_status_-c_disable/homedir/
+       searchpath` — all 9 pass cleanly run correctly as user `zfs` (see
+       cluster 5 above; these live in the same `cli_user/` family and
+       were checked together). No fix needed, no bug found — the
+       original FAILs may be the same non-deterministic/order-dependent
+       thing as clusters 4/5, or the ZTS flakiness the user described.
+     - `zfs_list_002_pos`/`_003_pos`, `zpool_list_001_pos` — passed
+       cleanly on a fresh local `baseline` run, unable to reproduce the
+       original FAIL at all. Likely flaky, per the user's note that ZTS
+       has known flaky failures independent of platform.
+   - **Investigated, ruled out, still open**:
+     - `zfs_get_006_neg` — a negative test asserting `zfs get all -r`
+       (and 27 similar malformed invocations) must be *rejected*. Already
+       sets `export POSIXLY_CORRECT=1` before running these (upstream
+       anticipating glibc's `getopt()` permutation), so `getopt_permute`
+       was a reasonable first guess — ruled out: `zfs get all -r <pool>`
+       still wrongly succeeds even under `POSIXLY_CORRECT=1`. Real cause
+       is something deeper in `zfs_do_get()`'s argument handling in
+       `cmd/zfs/zfs_main.c` (likely how it manually scans for stray
+       dash-prefixed operands after `getopt()` finishes) — not found.
+   - **Still open, no lead yet**: `zfs_destroy_001_pos`/`_005_neg` (fails
+     with `ERROR: pgrep -fl mkbusy unexpectedly exited 0` — smells like a
+     BusyBox-vs-GNU `pgrep` behavior difference, similar family to
+     cluster 1, not confirmed), `rsend/send-c_stream_size_estimate`
+     (old lead from the original log: `bc: bad expression`, not
+     re-verified this session), `procfs_list_stale_read` (fails because
+     `grep "Input/output error"` doesn't match — the actual I/O error
+     message text may differ on this kernel/musl, not confirmed).
 7. **SKIPs that should be PASS**: `zpool_expand_*` (3), `zpool_reopen_*`
    (7), `zpool_split_wholedisk`, `zpool_import_aux_paths`, `fault/auto_*`
    (8), `procfs/pool_state`. The logged CI VM only had two disks
@@ -368,22 +405,35 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 
 - Basics are done: `baseline` builds and installs cleanly, kernel module
   loads, ZTS runs (both file-vdev and real-disk modes confirmed).
-- All five `claude/*` fix branches are locally validated (see "Local
-  validation results" above), ready for the user to submit upstream
-  independently — not this fork's job to merge or combine them (see
-  "Repo layout" above for the actual flow: upstream PR -> update this
-  fork's `master` -> rebase `baseline`).
-- Not yet run the full test suite locally, and not yet dug into any of
-  the still-untriaged failure clusters (4/5/6/7 above) — the
-  `claude/getopt_permute` discovery is the closest lead into cluster 6,
-  worth a dedicated sweep for other flags-after-positional-arg instances
-  across the test suite.
+- Six `claude/*` fix branches now exist, all locally validated (see
+  "Local validation results" above plus the cluster 6 triage above for
+  the newest, `claude/libcap-utils`), ready for the user to submit
+  upstream independently — not this fork's job to merge or combine them
+  (see "Repo layout" above for the actual flow: upstream PR -> update
+  this fork's `master` -> rebase `baseline`).
+- Cluster 6 (untriaged) is now mostly resolved: 2 more branches
+  (`claude/libcap-utils` new; `claude/mmp` covers `zpool_split_props`
+  too), several false leads ruled out (9 `cli_user/*` tests were a
+  local testing-methodology bug, not real bugs; 3 more just flaky).
+  Still open: `zfs_destroy_001_pos`/`_005_neg`, `send-c_stream_size_
+  estimate`, `procfs_list_stale_read`, `zfs_get_006_neg` (getopt_permute
+  ruled out).
+- Clusters 4 and 5 (the two crash clusters) are both still
+  **unreproduced** despite real attempts this session (individual tests,
+  full test-group batches, correct non-root user) — genuinely
+  non-deterministic, or dependent on the full ~2000-test suite's
+  accumulated state. Not resolved either way.
+- Cluster 7 (disk-related SKIPs) gained one data point: `device_access_
+  add` turned out to SKIP because of the same missing `capsh`, not a
+  disk issue — worth checking whether any of the others share that cause
+  before assuming they're all about missing disks.
 - GitHub push/PR/API access is now working (2026-08-23) — the user
   configured credentials and `gh`. Do not write credential details,
   token values, or where they're stored into this file or anywhere else
-  persistent; just that access works. All eight branches (`baseline`,
+  persistent; just that access works. All nine branches (`baseline`,
   `master`, `claude-meta`, `claude/mmp`, `claude/history_uncompress`,
-  `claude/user_namespace`, `claude/getopt_permute`, `claude/tzdata`) are
-  pushed and match `origin` exactly (verified via `git ls-remote`,
-  2026-08-23). `claude/mmp` needed `--force-with-lease` since its commit
-  was amended locally after the original push.
+  `claude/user_namespace`, `claude/getopt_permute`, `claude/tzdata`,
+  `claude/libcap-utils`) are pushed and match `origin`. `claude/mmp` and
+  `claude/tzdata` each needed `--force-with-lease` once, after being
+  amended locally post-push (blank-line cleanup; commit-message line
+  length for `checkstyle`'s `commitcheck`, respectively).

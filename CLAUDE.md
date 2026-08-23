@@ -327,8 +327,12 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `claude/getopt_permute` discovery is the closest lead into cluster 6,
   worth a dedicated sweep for other flags-after-positional-arg instances
   across the test suite.
-- GitHub token not yet available for push/PR/API access. Tried pushing
-  `claude-meta` on 2026-08-23 to check — failed cleanly (`could not read
-  Username for 'https://github.com'`), no credential helper or stored
-  token configured. Nothing else to troubleshoot there; needs the user
-  to provide credentials.
+- GitHub push/PR/API access is now working (2026-08-23) — the user
+  configured credentials and `gh`. Do not write credential details,
+  token values, or where they're stored into this file or anywhere else
+  persistent; just that access works. All eight branches (`baseline`,
+  `master`, `claude-meta`, `claude/mmp`, `claude/history_uncompress`,
+  `claude/user_namespace`, `claude/getopt_permute`, `claude/tzdata`) are
+  pushed and match `origin` exactly (verified via `git ls-remote`,
+  2026-08-23). `claude/mmp` needed `--force-with-lease` since its commit
+  was amended locally after the original push.

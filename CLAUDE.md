@@ -32,11 +32,17 @@ tracks upstream `master`.
   -f` on a pool reporting busy. Escalating through that sequence during
   an interrupted test run took down most services on the VM badly enough
   (login process itself restarted, per the second login prompt the user
-  saw) that a reboot was the practical fix (2026-08-23) — exact
-  mechanism unconfirmed (no pstore capture, so possibly OOM-killer
-  fallout under memory pressure rather than a kernel-level deadlock; the
-  user could still log in, so it likely wasn't a full hang), but the
-  triggering sequence is clear enough to just avoid outright. If a pool/
+  saw) that a reboot was the practical fix (2026-08-23). Not memory
+  pressure — this VM has 32GB and was running a ~33-test subset, while
+  real CI runs the full ~2000-test suite on 8GB VMs without issue, which
+  rules that out. Far more likely: `SIGKILL` mid-operation on a process
+  touching a ZFS mount left kernel-side state (locks/refcounts)
+  inconsistent, and the follow-up lazy umount + forced destroy-on-busy
+  hit a lock-ordering problem or deadlock in the kernel module (a fresh
+  `--enable-debug` build) — a module/kernel robustness issue triggered
+  by forcing teardown, not a resource-sizing one (more RAM/CPU would not
+  prevent a repeat). Exact mechanism still unconfirmed (no pstore
+  capture). If a pool/
   process/unmount reports busy: stop, investigate (`fuser`, lingering
   test processes), or let the test harness's own cleanup/interrupt path
   handle it — don't force it.
@@ -45,6 +51,10 @@ tracks upstream `master`.
   here. A single unexpected FAIL outside the current target list isn't
   automatically a real bug; rerun before concluding anything, especially
   for tests not directly related to whatever's being validated.
+- **A fresh VM needs `sudo apk add shadow`** before trusting local ZTS
+  results (see item 6 under "Local build & test setup" below) — CI's
+  actual Alpine VM has `useradd`/`groupadd`/etc. available even though
+  they're not in `qemu-3-deps-vm.sh`'s explicit package list.
 - **Git identity convention**: real fixes intended for upstream are
   authored/signed-off as `Alexander Moch <mail@alexmoch.com>`, matching
   the precedent set by the three existing `claude/*` branches (DCO
@@ -82,24 +92,47 @@ tracks upstream `master`.
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
     Stays here — see "This fork is a staging area" above.
-- Three unmerged, one-commit fix branches, each stacked directly on
-  `baseline` and each targeting one known Alpine-specific ZTS failure
-  cluster (see below). Not yet merged into `baseline`, not yet re-tested
-  in CI:
-  - `origin/claude/mmp` (`a4283ddbe`) — musl's `gethostid()` ignores
-    `/etc/hostid` and always returns 0, so `mmp_set_hostid` (used by ~13
-    `mmp/*` tests) never matched. Fix falls back to reading the hostid file
-    directly with `od` when `hostid` disagrees.
+- Four unmerged, one-commit fix branches, each stacked directly on
+  `baseline` and each targeting one root cause (see below). Not yet
+  merged into `baseline`, not yet re-tested in CI:
+  - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
+    `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
+    `gethostid()` ignores `/etc/hostid` and always returns 0, so
+    `mmp_set_hostid` (used by ~15 `mmp/*` tests) never matched. Fix falls
+    back to reading the hostid file directly with `od` when `hostid`
+    disagrees. **Validated locally (2026-08-23): 16/17 `mmp/*` tests now
+    pass** (all 14 CI had flagged, plus `mmp_degraded_import` and
+    `mmp_zhack_reclaim` which share the same root cause but weren't part
+    of that particular CI run). The 17th, `mmp_write_uberblocks`, needs
+    `claude/getopt_permute` below too.
   - `origin/claude/history_uncompress` (`8ce47cb1b`) — Alpine has no
     `uncompress` binary; swapped in `gunzip` (handles `.Z`, accepts `-f`)
-    in `history_001_pos`/`history_007_pos`.
+    in `history_001_pos`/`history_007_pos`. Not yet locally validated.
   - `origin/claude/user_namespace` (`8ae2ff41c`) — `readlink -f` on
     Alpine resolves `touch`/`chmod` through the `busybox` symlink to the
     `/bin/coreutils` multi-call binary, losing the `argv[0]` BusyBox uses
     to pick the applet ("unknown program"). Fix drops the `readlink -f`.
+    Not yet locally validated.
+  - `claude/getopt_permute` (`054846daf`, new 2026-08-23, found while
+    validating `claude/mmp`) — glibc's `getopt()` permutes `argv` by
+    default (a GNU extension), reordering flags to the front regardless
+    of position; musl's `getopt()` is strict POSIX and stops parsing at
+    the first non-option argument. `mmp_write_uberblocks.ksh`'s zinject
+    call (unmodified from upstream) puts `-L uber` *after* the positional
+    pool name, which only glibc tolerates. Fixed by reordering flags
+    before the positional arg — a no-op on glibc, since it accepts both
+    orderings. **This is likely a broader pattern**: any ZTS test (or
+    real invocation) that places flags after a positional argument on any
+    OpenZFS CLI tool (`zinject`, `zpool`, `zfs`, ...) is exposed to this
+    on musl. Only this one instance has been found and fixed so far —
+    worth a dedicated sweep for other occurrences, not yet done. Can't be
+    independently verified as a full PASS on `baseline` alone since
+    `mmp_write_uberblocks` also needs `claude/mmp`'s fix to get past an
+    earlier step; verified by combining both locally.
 
-  These three branches likely need to be rebased together onto one branch,
-  validated locally (see below), and merged into `baseline`.
+  These four branches likely need to be rebased together onto one
+  branch, fully validated locally (see below), and merged into
+  `baseline`.
 
 ## Latest CI run: `logs/qemu-alpine3-24_20260713/`
 
@@ -220,13 +253,13 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 ## Current status / next steps
 
 - Basics are done: `baseline` builds and installs cleanly, kernel module
-  loads, ZTS runs (both file-vdev and real-disk modes confirmed with a
-  single smoke test). Not yet run the full suite locally, and not yet
-  dug into any specific failure cluster — waiting on direction for what
-  to do next (full local run to confirm parity with the logged CI
-  failures? validate the three `claude/*` fix branches against their
-  targeted tests? something else?).
-- The three unmerged `claude/*` fix branches (mmp, history_uncompress,
-  user_namespace) still need local validation before merging into
-  `baseline`, per user's preference.
+  loads, ZTS runs (both file-vdev and real-disk modes confirmed).
+- Local validation of the four `claude/*` branches (see "Repo layout"
+  above) is in progress: `claude/mmp` done (16/17 `mmp/*` tests pass);
+  `claude/getopt_permute` done (the 17th); `claude/history_uncompress`
+  and `claude/user_namespace` not yet run. None merged into `baseline`
+  yet, per user's preference to validate first.
+- Not yet run the full test suite locally, and not yet dug into any of
+  the still-untriaged failure clusters (4/5/6/7 above) — the
+  `claude/getopt_permute` discovery is the closest lead into cluster 6.
 - GitHub token not yet available — user may add one later.

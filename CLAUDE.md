@@ -359,16 +359,41 @@ config, not a shared runner limitation.
      re-verified this session), `procfs_list_stale_read` (fails because
      `grep "Input/output error"` doesn't match — the actual I/O error
      message text may differ on this kernel/musl, not confirmed).
-7. **SKIPs that should be PASS**: `zpool_expand_*` (3), `zpool_reopen_*`
-   (7), `zpool_split_wholedisk`, `zpool_import_aux_paths`, `fault/auto_*`
-   (8), `procfs/pool_state`. The logged CI VM only had two disks
-   (`/dev/vda` system, `/dev/vdb` `/var/tmp` scratch — see
-   `vm1/df-prerun.txt`), no extra block devices, which plausibly makes
-   these tests skip themselves (they need real/removable/expandable
-   disks, not just loopback files). **Working theory, not confirmed** —
-   needs checking against each test's skip condition. Our local VM has
-   six extra scratch disks (see below), which may let us reproduce and
-   fix this.
+7. **SKIPs that should be PASS — root cause found (2026-08-23), NOT
+   fixable within this project's scope.** Originally guessed as "needs
+   real disks" (wrong guess, corrected below). All 17 remaining tests
+   (`zpool_expand_001/003/005/006_pos`, `zpool_reopen_*` (7, including
+   `setup`), `zpool_split_wholedisk`, `zpool_import_aux_paths`,
+   `fault/auto_offline_001_pos`, `fault/auto_online_001/002_pos`,
+   `fault/auto_replace_001/002_pos`, `fault/auto_spare_ashift`,
+   `fault/auto_spare_shared`, `fault/suspend_draid_fgroups`,
+   `fault/suspend_on_probe_errors`, `fault/suspend_resume_single`,
+   `procfs/pool_state` — confirmed via `grep -l scsi_debug` across every
+   one) all depend on the Linux `scsi_debug` kernel module (a synthetic
+   SCSI device driver used to test expand/reopen/fault-injection
+   scenarios that real static disks can't easily simulate) via
+   `load_scsi_debug()` in `tests/zfs-tests/include/blkdev.shlib`, which
+   calls `log_unsupported` when `modprobe -n scsi_debug` fails.
+   **`modprobe -n scsi_debug` fails on this VM**: `/boot/config-6.18.44-
+   0-virt` has `# CONFIG_SCSI_DEBUG is not set`, so the module isn't
+   built into the `linux-virt` kernel Alpine's CI actually boots. It
+   *is* enabled (`CONFIG_SCSI_DEBUG=m`) in the sibling `linux-lts`
+   kernel flavor (`/boot/config-6.18.44-0-lts`, confirmed
+   `/lib/modules/.../linux-lts/.../scsi_debug.ko.gz` exists there), but
+   there's no standalone package providing just the module for
+   `linux-virt` — it's compiled out entirely, not merely uninstalled.
+   Three ways this could theoretically be fixed, none of which fit
+   "small, targeted, upstream-mergeable ZTS/CI fix": (a) Alpine's
+   `linux-virt` aport enabling `CONFIG_SCSI_DEBUG` — an external Alpine
+   packaging change, not ours to make; (b) switching Alpine CI from
+   `linux-virt` to `linux-lts` — a much bigger CI-infrastructure
+   decision with unknown other side effects, not a narrow fix; (c)
+   rewriting all 17 tests to use real disks instead of `scsi_debug` —
+   a major test-suite redesign `scsi_debug` exists specifically to avoid
+   needing (real disks can't easily simulate the expand/fault-injection
+   scenarios these need), unlikely to be accepted upstream. **Considered
+   closed for this project** unless the user wants to pursue (a) or (b)
+   as a separate, explicitly bigger undertaking.
 
 ## Local environment
 

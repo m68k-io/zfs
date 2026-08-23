@@ -92,27 +92,24 @@ tracks upstream `master`.
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
     Stays here — see "This fork is a staging area" above.
-- Four unmerged, one-commit fix branches, each stacked directly on
-  `baseline` and each targeting one root cause (see below). Not yet
-  merged into `baseline`, not yet re-tested in CI:
+- Five unmerged, one-commit fix branches, each stacked directly on
+  `baseline` and each targeting one root cause. **All five validated
+  locally as of 2026-08-23** (see "Local validation results" below for
+  the actual run output); none merged into `baseline` yet, not yet
+  re-tested in CI:
   - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
     `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
     `gethostid()` ignores `/etc/hostid` and always returns 0, so
     `mmp_set_hostid` (used by ~15 `mmp/*` tests) never matched. Fix falls
     back to reading the hostid file directly with `od` when `hostid`
-    disagrees. **Validated locally (2026-08-23): 16/17 `mmp/*` tests now
-    pass** (all 14 CI had flagged, plus `mmp_degraded_import` and
-    `mmp_zhack_reclaim` which share the same root cause but weren't part
-    of that particular CI run). The 17th, `mmp_write_uberblocks`, needs
-    `claude/getopt_permute` below too.
-  - `origin/claude/history_uncompress` (`8ce47cb1b`) — Alpine has no
+    disagrees.
+  - `claude/history_uncompress` (`8ce47cb1b`) — Alpine has no
     `uncompress` binary; swapped in `gunzip` (handles `.Z`, accepts `-f`)
-    in `history_001_pos`/`history_007_pos`. Not yet locally validated.
-  - `origin/claude/user_namespace` (`8ae2ff41c`) — `readlink -f` on
-    Alpine resolves `touch`/`chmod` through the `busybox` symlink to the
+    in `history_001_pos`/`history_007_pos`.
+  - `claude/user_namespace` (`8ae2ff41c`) — `readlink -f` on Alpine
+    resolves `touch`/`chmod` through the `busybox` symlink to the
     `/bin/coreutils` multi-call binary, losing the `argv[0]` BusyBox uses
     to pick the applet ("unknown program"). Fix drops the `readlink -f`.
-    Not yet locally validated.
   - `claude/getopt_permute` (`054846daf`, new 2026-08-23, found while
     validating `claude/mmp`) — glibc's `getopt()` permutes `argv` by
     default (a GNU extension), reordering flags to the front regardless
@@ -125,24 +122,76 @@ tracks upstream `master`.
     real invocation) that places flags after a positional argument on any
     OpenZFS CLI tool (`zinject`, `zpool`, `zfs`, ...) is exposed to this
     on musl. Only this one instance has been found and fixed so far —
-    worth a dedicated sweep for other occurrences, not yet done. Can't be
-    independently verified as a full PASS on `baseline` alone since
-    `mmp_write_uberblocks` also needs `claude/mmp`'s fix to get past an
-    earlier step; verified by combining both locally.
+    worth a dedicated sweep for other occurrences, not yet done. Depends
+    on `claude/mmp` to be testable at all (`mmp_write_uberblocks` fails
+    at an earlier step on `baseline` alone).
+  - `claude/tzdata` (`c5edaf6cd`, new 2026-08-23, found while validating
+    `claude/history_uncompress`) — Alpine doesn't ship zoneinfo data by
+    default (unlike glibc distros, which bundle it). `history_007_pos`
+    sets `TZ=America/Denver` before formatting a timestamp for comparison
+    against a pre-recorded expected value; without `tzdata` installed,
+    the `TZ` setting silently has no effect and timestamps come out in
+    UTC, 6 hours off. This is a CI-provisioning fix (`tzdata` added to
+    `qemu-3-deps-vm.sh`'s `alpine()` package list), not a test-script fix
+    — confirmed via `grep -rl "TZ=" tests/zfs-tests/tests/functional/`
+    that `history_007_pos` is the only test affected.
 
-  These four branches likely need to be rebased together onto one
-  branch, fully validated locally (see below), and merged into
-  `baseline`.
+  These five branches likely need to be rebased together onto one
+  branch and merged into `baseline` once CI-confirmed.
 
-## Latest CI run: `logs/qemu-alpine3-24_20260713/`
+## Local validation results (2026-08-23)
 
-From GitHub's Alpine 3.24 runner, **on `baseline` (i.e. without the three
-fix branches above)**. Build succeeded (`build-exitcode.txt` = 0).
-`summary.txt`: **1951 PASS / 58 FAIL / 49 SKIP (94.80%)**, split into
-tests with known/expected non-PASS results (unrelated to Alpine) and
-tests that are unexpectedly non-PASS on Alpine — the latter is the actual
-target list. Full per-test output is in `failed.txt`
-(`<summary>test_name</summary><pre>...</pre>` blocks, ripgrep-friendly).
+Ran the targeted test groups (`mmp`, `history`, `user_namespace`)
+locally against each branch, using the six scratch disks' host VM
+directly (no nested qemu — this VM already *is* the Alpine target, per
+"Local environment" below).
+
+- **`claude/mmp`**: 16/17 `mmp/*` tests pass (all 14 CI flagged, plus
+  `mmp_degraded_import`/`mmp_zhack_reclaim`, same root cause, just not
+  part of the July CI run's particular selection — confirmed as real
+  failures in the fresh August CI run, see below). 17th
+  (`mmp_write_uberblocks`) needs `claude/getopt_permute` too.
+- **`claude/getopt_permute`**: combined with `claude/mmp`, the 17th
+  (`mmp_write_uberblocks`) also passes — full 17/17.
+- **`claude/history_uncompress`**: 10/10 `history/*` tests pass, but
+  only after also installing `tzdata` (see `claude/tzdata`) and `shadow`
+  (see "Local build & test setup" below) locally — those two gaps are
+  environment-provisioning issues, not part of what this branch fixes.
+- **`claude/tzdata`**: combined with `claude/history_uncompress`,
+  `history_007_pos` goes from FAIL to PASS on its own merits (confirmed
+  by installing `tzdata` and rerunning just that test before rerunning
+  the full group).
+- **`claude/user_namespace`**: `user_namespace_001` now passes;
+  `_002`/`_003` SKIP, `_004`/`secpolicy_*` PASS — this exact pattern
+  (2 SKIP, 4 PASS once `_001` is fixed) matches both real CI logs
+  (July and August) exactly, confirming it's not a local artifact.
+
+Not yet done: merging these five into one branch, a full local ZTS run,
+and re-running through actual CI.
+
+## Latest CI runs: `logs/qemu-alpine3-24_20260713/` and `_20260823/`
+
+Both from GitHub's Alpine 3.24 runner, **on `baseline` (i.e. without any
+of the five fix branches above)**. Build succeeded both times
+(`build-exitcode.txt` = 0).
+
+- **`_20260713`** (original, used for the cluster triage below):
+  `summary.txt`: **1951 PASS / 58 FAIL / 49 SKIP (94.80%)**. Full
+  per-test output is in `failed.txt` (`<summary>test_name</summary>
+  <pre>...</pre>` blocks, ripgrep-friendly).
+- **`_20260823`** (fresh confirmation run, no `failed.txt` — only
+  `summary.txt`): **1994 PASS / 61 FAIL / 54 SKIP (94.55%)**. Same
+  clusters, same near-identical failure list (a few new/renamed tests
+  from upstream drift in the ~6 weeks between runs — e.g.
+  `dedup_fdt_pacing`, `zpool_add_001_neg` — but nothing that changes the
+  triage below). Notably **does** include `mmp_degraded_import` and
+  `mmp_zhack_reclaim` in the unexpected-FAIL list (the July run didn't
+  run them at all), confirming they share `claude/mmp`'s root cause as
+  found during local validation, not a local-only artifact.
+
+Both split results into tests with known/expected non-PASS outcomes
+(unrelated to Alpine) and tests that are unexpectedly non-PASS on Alpine
+— the latter is the actual target list.
 
 ### Unexpected-failure clusters identified so far
 
@@ -254,12 +303,13 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 
 - Basics are done: `baseline` builds and installs cleanly, kernel module
   loads, ZTS runs (both file-vdev and real-disk modes confirmed).
-- Local validation of the four `claude/*` branches (see "Repo layout"
-  above) is in progress: `claude/mmp` done (16/17 `mmp/*` tests pass);
-  `claude/getopt_permute` done (the 17th); `claude/history_uncompress`
-  and `claude/user_namespace` not yet run. None merged into `baseline`
-  yet, per user's preference to validate first.
+- All five `claude/*` fix branches are locally validated (see "Local
+  validation results" above). None merged into `baseline` yet, per
+  user's preference to validate first — next natural step is rebasing
+  them together onto one branch and merging, once desired.
 - Not yet run the full test suite locally, and not yet dug into any of
   the still-untriaged failure clusters (4/5/6/7 above) — the
-  `claude/getopt_permute` discovery is the closest lead into cluster 6.
+  `claude/getopt_permute` discovery is the closest lead into cluster 6,
+  worth a dedicated sweep for other flags-after-positional-arg instances
+  across the test suite.
 - GitHub token not yet available — user may add one later.

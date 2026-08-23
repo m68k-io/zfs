@@ -391,9 +391,35 @@ config, not a shared runner limitation.
        is something deeper in `zfs_do_get()`'s argument handling in
        `cmd/zfs/zfs_main.c` (likely how it manually scans for stray
        dash-prefixed operands after `getopt()` finishes) — not found.
-   - **Still open, no lead yet**: `rsend/send-c_stream_size_estimate`
-     (old lead from the original log: `bc: bad expression`, not
-     re-verified this session), `procfs_list_stale_read` (fails because
+   - **`rsend/send-c_stream_size_estimate` — real product bug found
+     (2026-08-23), deliberately not fixed.** Traced past the original
+     `bc: bad expression` symptom (a downstream side effect, not the
+     cause) to genuinely corrupted `zfs send -nP` output: the `full\t
+     <snap>\t<size>` line is missing exactly its first N bytes, where N
+     is exactly the byte length of the `size\t<total>\n` line printed
+     moments later — reproduced deterministically inside the test
+     (3/3), confirmed by patching `get_estimated_size` in the test
+     script to dump the raw output (reverted after, not part of any
+     fix). Root cause traced into `lib/libzfs/libzfs_sendrecv.c`:
+     `estimate_size()` spawns a `send_progress_thread` (`pthread_
+     create`, line ~1638) that runs concurrently while the estimate is
+     computed, then tears it down via `send_progress_thread_exit()`
+     (`pthread_cancel` + `pthread_join`) immediately before the main
+     thread writes the `full`/`size` lines to the same `fout` stream
+     (line ~1653-1668) — a plausible race if the cancelled thread isn't
+     fully torn down by the time `pthread_join` returns, letting a
+     stray write land in the middle of the main thread's output.
+     **This is real product code with correctness implications beyond
+     Alpine** (every `zfs send` invocation goes through this path), not
+     a test-script portability issue, and touching thread-cancellation/
+     teardown logic in a widely-used code path is exactly the kind of
+     core-code change this project's principles call for extra
+     scrutiny on — non-regression on glibc/FreeBSD can't be verified
+     locally, and a wrong fix here has real blast radius. Deliberately
+     **not fixed** without the user's explicit direction on how to
+     proceed (attempt a fix here for review, or report/handle upstream
+     separately from this project's Alpine-CI scope).
+   - **Still open, no lead yet**: `procfs_list_stale_read` (fails because
      `grep "Input/output error"` doesn't match — the actual I/O error
      message text may differ on this kernel/musl, not confirmed).
 7. **SKIPs that should be PASS — root cause found and fixed
@@ -524,9 +550,12 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   too), several false leads ruled out (9 `cli_user/*` tests were a
   local testing-methodology bug, not real bugs; 3 more just flaky).
   `zfs_destroy_001_pos`/`_005_neg` fixed by `claude/mkbusy_kill_race`
-  (a real kill/pgrep race, confirmed generic not Alpine-specific). Still
-  open: `send-c_stream_size_estimate`, `procfs_list_stale_read`,
-  `zfs_get_006_neg` (getopt_permute ruled out).
+  (a real kill/pgrep race, confirmed generic not Alpine-specific).
+  `send-c_stream_size_estimate` traced to a real `zfs send` progress-
+  thread teardown race in `libzfs_sendrecv.c` — deliberately left
+  unfixed pending direction, see cluster 6 above. Still open, no lead:
+  `procfs_list_stale_read`, `zfs_get_006_neg` (getopt_permute ruled
+  out).
 - Clusters 4 and 5 (the two crash clusters) are both still
   **unreproduced** despite real attempts this session (individual tests,
   full test-group batches, correct non-root user) — genuinely

@@ -108,10 +108,10 @@ tracks upstream `master`.
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
     Stays here — see "This fork is a staging area" above.
-- Five one-commit fix branches, each stacked directly on `baseline` and
+- Six one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
-  **All five validated locally as of 2026-08-23** (see "Local validation
+  **All six validated locally as of 2026-08-23** (see "Local validation
   results" below for the actual run output), not yet re-tested in CI:
   - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
     `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
@@ -141,8 +141,10 @@ tracks upstream `master`.
     worth a dedicated sweep for other occurrences, not yet done. Depends
     on `claude/mmp` to be testable at all (`mmp_write_uberblocks` fails
     at an earlier step on `baseline` alone).
-  - `claude/tzdata` (`c5edaf6cd`, new 2026-08-23, found while validating
-    `claude/history_uncompress`) — Alpine doesn't ship zoneinfo data by
+  - `claude/tzdata` (`93e4d710e`, new 2026-08-23, found while validating
+    `claude/history_uncompress`; originally `c5edaf6cd`, amended to wrap
+    the commit body at 72 chars after `checkstyle`'s `commitcheck`
+    caught it) — Alpine doesn't ship zoneinfo data by
     default (unlike glibc distros, which bundle it). `history_007_pos`
     sets `TZ=America/Denver` before formatting a timestamp for comparison
     against a pre-recorded expected value; without `tzdata` installed,
@@ -151,8 +153,19 @@ tracks upstream `master`.
     `qemu-3-deps-vm.sh`'s `alpine()` package list), not a test-script fix
     — confirmed via `grep -rl "TZ=" tests/zfs-tests/tests/functional/`
     that `history_007_pos` is the only test affected.
+  - `claude/libcap-utils` (`34789f470`, new 2026-08-23, found during
+    cluster-6 triage) — `zoned_uid_common.kshlib`'s `run_in_userns_caps()`
+    needs `capsh` (from `libcap-utils`, missing from CI's Alpine dep
+    list) for any `cap_spec` other than `"all"`; without it,
+    `"$(which capsh)"` is empty and the resulting `unshare ... '' -- ...`
+    fails with `unshare: failed to execute : No such file or directory`.
+    Same CI-provisioning shape as `claude/tzdata`. Fixes
+    `zoned_uid_023/025/026/030_pos` and turns the `device_access_add`
+    SKIP into a genuine PASS; `capsh` is also referenced by
+    `device_access.kshlib` and other `zoned_uid` tests not individually
+    re-verified, so the real scope is likely wider.
 
-  Next for these five: the user submits them upstream independently
+  Next for these six: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -193,7 +206,7 @@ re-running through actual CI.
 ## Latest CI runs: `logs/qemu-alpine3-24_20260713/` and `_20260823/`
 
 Both from GitHub's Alpine 3.24 runner, **on `baseline` (i.e. without any
-of the five fix branches above)**. Build succeeded both times
+of the six fix branches above)**. Build succeeded both times
 (`build-exitcode.txt` = 0).
 
 - **`_20260713`** (original, used for the cluster triage below):
@@ -213,6 +226,21 @@ of the five fix branches above)**. Build succeeded both times
 Both split results into tests with known/expected non-PASS outcomes
 (unrelated to Alpine) and tests that are unexpectedly non-PASS on Alpine
 — the latter is the actual target list.
+
+### Cross-platform confirmation: `logs/qemu-{almalinux10,debian13,
+fedora44,freebsd15-1r,ubuntu26}_20260823/`
+
+Same run as `_20260823` above, same `baseline` commit, the other 5 OS
+legs of the same CI matrix (added by the user, 2026-08-23). **All five
+show zero unexpected FAILs or SKIPs** — every non-PASS result on every
+other platform is already a known/expected issue unrelated to Alpine.
+This confirms, cheaply and cleanly, that every still-open item in the
+clusters below (4, 5, and the remaining cluster-6 tests) is genuinely
+Alpine-specific — not a pre-existing cross-platform bug this project
+would be wasting time chasing. It also confirms cluster 7's working
+theory: the other platforms don't skip `zpool_expand`/`zpool_reopen`/
+`fault/auto_*`/etc., so those SKIPs are specific to Alpine's CI VM disk
+config, not a shared runner limitation.
 
 ### Unexpected-failure clusters identified so far
 

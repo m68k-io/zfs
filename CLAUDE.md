@@ -32,18 +32,19 @@ tracks upstream `master`.
   the precedent set by the three existing `claude/*` branches (DCO
   sign-off needs to trace to a real accountable person). Meta/non-
   upstream-bound commits (docs, `claude-meta` branch) use the canonical
-  `Claude $MODEL_NAME <noreply@anthropic.com>` identity instead (e.g.
-  `Claude Sonnet 5 <noreply@anthropic.com>` for this session — substitute
-  whichever model is actually running). No default git identity is
-  configured repo-wide — set it explicitly per commit (e.g. `git -c
-  user.name=... -c user.email=... commit ...`) so the two never get
-  mixed up by accident.
+  `Claude <noreply@anthropic.com>` identity instead — no model name in
+  it (matches `github.com/claude`'s convention), since the model running
+  a given session may vary (Sonnet, Opus, Fable, ...). No default git
+  identity is configured repo-wide — set it explicitly per commit (e.g.
+  `git -c user.name=... -c user.email=... commit ...`) so the two never
+  get mixed up by accident.
 - **This fork (`m68k-io/zfs`) is a staging area, not the final upstream
-  source.** The user does final quality assurance and cherry-picks real
-  fix commits into a second, separate GitHub account before anything
-  goes to `openzfs/zfs`. So: the `**DEBUG**` CI-restriction commit on
-  `baseline` is intentional and stays — it's local to this staging fork,
-  never gets cherry-picked, and doesn't need reverting.
+  source.** The real repo is `https://github.com/alex-moch` (a separate
+  account), where the user does final QA on cherry-picked real-fix
+  commits, without the `**DEBUG**` commit, before anything goes to
+  `openzfs/zfs`. So the `**DEBUG**` CI-restriction commit on `baseline`
+  here is intentional and stays — it's local to this staging fork, never
+  gets cherry-picked, and doesn't need reverting.
 
 ## Repo layout (`~/Development/zfs`)
 

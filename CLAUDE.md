@@ -108,11 +108,14 @@ tracks upstream `master`.
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
     Stays here — see "This fork is a staging area" above.
-- Six one-commit fix branches, each stacked directly on `baseline` and
+- Seven one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
-  **All six validated locally as of 2026-08-23** (see "Local validation
-  results" below for the actual run output), not yet re-tested in CI:
+  **The first six validated locally as of 2026-08-23** (see "Local
+  validation results" below for the actual run output); the 7th
+  (`claude/linux-stable-kernel`) had its underlying mechanism verified
+  but not full ZTS-test execution — see cluster 7 above for exactly
+  what was and wasn't checked. None yet re-tested in real CI:
   - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
     `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
     `gethostid()` ignores `/etc/hostid` and always returns 0, so
@@ -164,8 +167,16 @@ tracks upstream `master`.
     SKIP into a genuine PASS; `capsh` is also referenced by
     `device_access.kshlib` and other `zoned_uid` tests not individually
     re-verified, so the real scope is likely wider.
+  - `claude/linux-stable-kernel` (`74f10cadb`, new 2026-08-23, cluster 7)
+    — Alpine's `linux-virt` kernel (what CI boots) has
+    `CONFIG_SCSI_DEBUG` compiled out, which 17 tests need to simulate
+    expand/fault-injection scenarios. Swaps `linux-virt`/`linux-virt-dev`
+    for `linux-stable`/`linux-stable-dev` (`CONFIG_SCSI_DEBUG=m` there)
+    and switches extlinux's default kernel accordingly. See cluster 7
+    above for the full verification chain and what's still unconfirmed
+    (`update-extlinux` itself, and a full real-CI boot).
 
-  Next for these six: the user submits them upstream independently
+  Next for these seven: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -359,41 +370,59 @@ config, not a shared runner limitation.
      re-verified this session), `procfs_list_stale_read` (fails because
      `grep "Input/output error"` doesn't match — the actual I/O error
      message text may differ on this kernel/musl, not confirmed).
-7. **SKIPs that should be PASS — root cause found (2026-08-23), NOT
-   fixable within this project's scope.** Originally guessed as "needs
-   real disks" (wrong guess, corrected below). All 17 remaining tests
-   (`zpool_expand_001/003/005/006_pos`, `zpool_reopen_*` (7, including
-   `setup`), `zpool_split_wholedisk`, `zpool_import_aux_paths`,
-   `fault/auto_offline_001_pos`, `fault/auto_online_001/002_pos`,
-   `fault/auto_replace_001/002_pos`, `fault/auto_spare_ashift`,
-   `fault/auto_spare_shared`, `fault/suspend_draid_fgroups`,
-   `fault/suspend_on_probe_errors`, `fault/suspend_resume_single`,
-   `procfs/pool_state` — confirmed via `grep -l scsi_debug` across every
-   one) all depend on the Linux `scsi_debug` kernel module (a synthetic
-   SCSI device driver used to test expand/reopen/fault-injection
-   scenarios that real static disks can't easily simulate) via
-   `load_scsi_debug()` in `tests/zfs-tests/include/blkdev.shlib`, which
-   calls `log_unsupported` when `modprobe -n scsi_debug` fails.
-   **`modprobe -n scsi_debug` fails on this VM**: `/boot/config-6.18.44-
-   0-virt` has `# CONFIG_SCSI_DEBUG is not set`, so the module isn't
-   built into the `linux-virt` kernel Alpine's CI actually boots. It
-   *is* enabled (`CONFIG_SCSI_DEBUG=m`) in the sibling `linux-lts`
-   kernel flavor (`/boot/config-6.18.44-0-lts`, confirmed
-   `/lib/modules/.../linux-lts/.../scsi_debug.ko.gz` exists there), but
-   there's no standalone package providing just the module for
-   `linux-virt` — it's compiled out entirely, not merely uninstalled.
-   Three ways this could theoretically be fixed, none of which fit
-   "small, targeted, upstream-mergeable ZTS/CI fix": (a) Alpine's
-   `linux-virt` aport enabling `CONFIG_SCSI_DEBUG` — an external Alpine
-   packaging change, not ours to make; (b) switching Alpine CI from
-   `linux-virt` to `linux-lts` — a much bigger CI-infrastructure
-   decision with unknown other side effects, not a narrow fix; (c)
-   rewriting all 17 tests to use real disks instead of `scsi_debug` —
-   a major test-suite redesign `scsi_debug` exists specifically to avoid
-   needing (real disks can't easily simulate the expand/fault-injection
-   scenarios these need), unlikely to be accepted upstream. **Considered
-   closed for this project** unless the user wants to pursue (a) or (b)
-   as a separate, explicitly bigger undertaking.
+7. **SKIPs that should be PASS — root cause found and fixed
+   (2026-08-23).** Originally guessed as "needs real disks" (wrong
+   guess). All 17 remaining tests (`zpool_expand_001/003/005/006_pos`,
+   `zpool_reopen_*` (7, including `setup`), `zpool_split_wholedisk`,
+   `zpool_import_aux_paths`, `fault/auto_offline_001_pos`,
+   `fault/auto_online_001/002_pos`, `fault/auto_replace_001/002_pos`,
+   `fault/auto_spare_ashift`, `fault/auto_spare_shared`,
+   `fault/suspend_draid_fgroups`, `fault/suspend_on_probe_errors`,
+   `fault/suspend_resume_single`, `procfs/pool_state` — confirmed via
+   `grep -l scsi_debug` across every one) all depend on the Linux
+   `scsi_debug` kernel module (a synthetic SCSI device driver used to
+   test expand/reopen/fault-injection scenarios real static disks can't
+   easily simulate) via `load_scsi_debug()` in `tests/zfs-tests/include/
+   blkdev.shlib`, which calls `log_unsupported` when `modprobe -n
+   scsi_debug` fails. That fails because Alpine's `linux-virt` kernel
+   (what CI actually boots) has `CONFIG_SCSI_DEBUG` compiled out
+   entirely (`/boot/config-*-virt`: `# CONFIG_SCSI_DEBUG is not set`) —
+   not a missing package, the module doesn't exist for that kernel at
+   all.
+
+   Initially judged not fixable within scope (assumed switching kernel
+   flavors was a much bigger CI-infrastructure decision) — **corrected
+   after the user pushed back and asked me to actually check the
+   mechanics rather than assume.** It turned out to be small: fixed by
+   `claude/linux-stable-kernel`, which boots Alpine's `linux-stable`
+   kernel flavor instead (`CONFIG_SCSI_DEBUG=m` there) by changing one
+   package (`linux-virt`/`linux-virt-dev` -> `linux-stable`/
+   `linux-stable-dev`) and one config line (`/etc/update-extlinux.conf`:
+   `default=virt` -> `default=stable`). No explicit reboot needed in the
+   CI script — `qemu-3-deps.sh` already runs with `--poweroff`, and
+   `qemu-prepare-for-build.sh`'s `virsh start` boots the VM fresh for
+   the build step right after, so the new default kernel just takes
+   effect on the pipeline's existing next boot.
+
+   Verification chain (2026-08-23): downloaded the actual cloud image
+   CI boots (`generic_alpine-3.24.1-x86_64-bios-cloudinit-r0.qcow2`)
+   and inspected it directly via `qemu-nbd` (no full boot needed) —
+   confirmed it boots via `extlinux` (raw `SYSLINUX` boot sector, no
+   partition table), not GRUB as this practice VM uses, and that
+   `/etc/update-extlinux.conf` has exactly `default=virt` matching the
+   fix's `sed` pattern. Separately confirmed `linux-stable` actually has
+   `CONFIG_SCSI_DEBUG=m` and that `scsi_debug` loads and creates a
+   working synthetic disk, by installing it and rebooting into it on
+   this practice VM (GRUB-based, since it was set up from the standard
+   ISO rather than the cloud image — proved the kernel-flavor-switch
+   concept this way, since this VM has no `extlinux` tooling to test
+   that exact command against). `grep -rn "linux-virt"` across
+   `.github/workflows/` confirmed the package list is the only place it
+   was referenced — nothing else assumed the running kernel is
+   specifically `-virt` by name. **Not verified**: `update-extlinux`
+   itself, or a full boot of the real cloud image end to end — that
+   happens via real CI once this branch is tested there, same as every
+   other fix branch in this repo.
 
 ## Local environment
 
@@ -476,17 +505,20 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   full test-group batches, correct non-root user) — genuinely
   non-deterministic, or dependent on the full ~2000-test suite's
   accumulated state. Not resolved either way.
-- Cluster 7 (disk-related SKIPs) gained one data point: `device_access_
-  add` turned out to SKIP because of the same missing `capsh`, not a
-  disk issue — worth checking whether any of the others share that cause
-  before assuming they're all about missing disks.
+- Cluster 7 (disk-related SKIPs) is now fixed: root cause was
+  `scsi_debug` missing from `linux-virt`'s kernel config, not disk
+  availability. `device_access_add` (turned out to SKIP on missing
+  `capsh`, same as the `zoned_uid` finding) was actually the outlier,
+  not representative of the other 16. Fixed by `claude/linux-stable-
+  kernel` — see cluster 7 above for the full verification chain.
 - GitHub push/PR/API access is now working (2026-08-23) — the user
   configured credentials and `gh`. Do not write credential details,
   token values, or where they're stored into this file or anywhere else
-  persistent; just that access works. All nine branches (`baseline`,
+  persistent; just that access works. All ten branches (`baseline`,
   `master`, `claude-meta`, `claude/mmp`, `claude/history_uncompress`,
   `claude/user_namespace`, `claude/getopt_permute`, `claude/tzdata`,
-  `claude/libcap-utils`) are pushed and match `origin`. `claude/mmp` and
-  `claude/tzdata` each needed `--force-with-lease` once, after being
+  `claude/libcap-utils`, `claude/linux-stable-kernel`) are pushed and
+  match `origin`. `claude/mmp` and `claude/tzdata` each needed
+  `--force-with-lease` once, after being
   amended locally post-push (blank-line cleanup; commit-message line
   length for `checkstyle`'s `commitcheck`, respectively).

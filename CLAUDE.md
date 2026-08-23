@@ -99,16 +99,26 @@ tracks upstream `master`.
   commit(s) land upstream: the code reaches `baseline` naturally through
   the master-sync-and-rebase, not through a merge from the branch.
   `baseline` itself + `master` + Alpine/musl build fixes:
-  - `4cac946ce` — `alignas(type)` is C11; musl's `stdalign.h` exposes it
+  - `a983deb6e` — `alignas(type)` is C11; musl's `stdalign.h` exposes it
     unconditionally (unlike glibc, which gates it behind C11), so it broke
     the `-std=gnu99` build. Fixed with `alignas(__alignof__(uint64_t))`.
-  - `493476596` — fixed stale CDDL boilerplate in the FIDEDUPERANGE tests
-    that broke `spdxcheck.pl`.
-  - `0abdab84f` — **DEBUG**, intentionally permanent on this staging fork:
+    Still local-only (not yet upstream) — **`master` alone does not build
+    in this environment**; always build against `baseline`, never bare
+    `master`, until this lands upstream.
+  - `64740cac5` — **DEBUG**, intentionally permanent on this staging fork:
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
-    Stays here — see "This fork is a staging area" above.
-- Eight one-commit fix branches, each stacked directly on `baseline` and
+    Stays here — see "This fork is a staging area" above. Message carries
+    a standalone `[skip ci]` line (added 2026-08-23, see "CI hygiene"
+    below) — since this commit is always the permanent tip of `baseline`
+    after every rebase, this suppresses `push`-triggered CI on `baseline`
+    automatically, indefinitely, with no extra step needed per rebase.
+  - The stale-CDDL-boilerplate fix (previously `493476596` here) landed
+    upstream for real — confirmed 2026-08-23 when rebasing `baseline`
+    onto a freshly-synced `master`: git recognized it as patch-id-
+    equivalent to an already-upstream commit and dropped it automatically,
+    leaving only the two commits above.
+- Nine one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
   **Six validated locally with real ZTS test runs as of 2026-08-23** (see
@@ -116,8 +126,9 @@ tracks upstream `master`.
   `claude/linux-stable-kernel` had its underlying mechanism verified but
   not full ZTS-test execution (see cluster 7 above for exactly what was
   and wasn't checked); `claude/mkbusy_kill_race` was validated directly
-  (3/3 fail before, 3/3 pass after, see cluster 6 above). None yet
-  re-tested in real CI:
+  (3/3 fail before, 3/3 pass after, see cluster 6 above);
+  `claude/send_progress_race` validated via manual repro and a 79-test
+  regression sweep (see below). None yet re-tested in real CI:
   - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
     `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
     `gethostid()` ignores `/etc/hostid` and always returns 0, so
@@ -186,8 +197,17 @@ tracks upstream `master`.
     Added `kill_mkbusy()` (kill + poll up to 5s) to `zfs_destroy_
     common.kshlib`, fixed all 5 call sites. Confirmed fixed: 3/3 passes
     after, previously 3/3 failures.
+  - `claude/send_progress_race` (`32d09c43d`, new 2026-08-23, cluster 6,
+    real product bug not a test-script issue) — `zfs send -nP` output
+    corruption in `lib/libzfs/libzfs_sendrecv.c`; see the full diagnosis
+    under cluster 6 above. Fix: a `send_print_line()` helper (flush +
+    single `write(2)`) replacing `fprintf(3)` at the 3 call sites that
+    print after a `send_progress_thread` create/cancel/join cycle.
+    Branched from `baseline` (not bare `master` — see the `baseline`
+    bullet above on why), rebuilt and reinstalled clean, re-verified 8/8
+    on the new base before committing.
 
-  Next for these eight: the user submits them upstream independently
+  Next for these nine: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -221,8 +241,20 @@ directly (no nested qemu — this VM already *is* the Alpine target, per
   `_002`/`_003` SKIP, `_004`/`secpolicy_*` PASS — this exact pattern
   (2 SKIP, 4 PASS once `_001` is fixed) matches both real CI logs
   (July and August) exactly, confirming it's not a local artifact.
+- **`claude/send_progress_race`**: manual repro 8/8 clean (`zfs send
+  -nP`, no corruption) both before committing (old `master` base) and
+  again after rebasing onto the post-sync `baseline`; the real ZTS test
+  `rsend/send-c_stream_size_estimate` 8/8; a custom-runfile sweep of the
+  full `rsend/` directory (79 tests) for regressions: 77 PASS / 1 SKIP
+  (expected, pre-existing, tracked upstream) / 2 FAIL
+  (`send_raw_ashift`, `send_raw_large_blocks`) — both confirmed unrelated
+  to the fix: they failed before any send/receive logic ran, on
+  `truncate: cannot open '/var/tmp/testdir/vdev_a'`, because the custom
+  runfile ran `rsend/` out of the harness's normal managed order and an
+  earlier test's cleanup removed the shared `/var/tmp/testdir` directory
+  — neither test touches the `parsable`/`-P` code path this fix changed.
 
-Not yet done: submitting these five upstream, a full local ZTS run, and
+Not yet done: submitting these upstream, a full local ZTS run, and
 re-running through actual CI.
 
 ## Latest CI runs: `logs/qemu-alpine3-24_20260713/` and `_20260823/`
@@ -391,34 +423,64 @@ config, not a shared runner limitation.
        is something deeper in `zfs_do_get()`'s argument handling in
        `cmd/zfs/zfs_main.c` (likely how it manually scans for stray
        dash-prefixed operands after `getopt()` finishes) — not found.
-   - **`rsend/send-c_stream_size_estimate` — real product bug found
-     (2026-08-23), deliberately not fixed.** Traced past the original
-     `bc: bad expression` symptom (a downstream side effect, not the
-     cause) to genuinely corrupted `zfs send -nP` output: the `full\t
-     <snap>\t<size>` line is missing exactly its first N bytes, where N
-     is exactly the byte length of the `size\t<total>\n` line printed
-     moments later — reproduced deterministically inside the test
-     (3/3), confirmed by patching `get_estimated_size` in the test
-     script to dump the raw output (reverted after, not part of any
-     fix). Root cause traced into `lib/libzfs/libzfs_sendrecv.c`:
-     `estimate_size()` spawns a `send_progress_thread` (`pthread_
-     create`, line ~1638) that runs concurrently while the estimate is
-     computed, then tears it down via `send_progress_thread_exit()`
-     (`pthread_cancel` + `pthread_join`) immediately before the main
-     thread writes the `full`/`size` lines to the same `fout` stream
-     (line ~1653-1668) — a plausible race if the cancelled thread isn't
-     fully torn down by the time `pthread_join` returns, letting a
-     stray write land in the middle of the main thread's output.
-     **This is real product code with correctness implications beyond
-     Alpine** (every `zfs send` invocation goes through this path), not
-     a test-script portability issue, and touching thread-cancellation/
-     teardown logic in a widely-used code path is exactly the kind of
-     core-code change this project's principles call for extra
-     scrutiny on — non-regression on glibc/FreeBSD can't be verified
-     locally, and a wrong fix here has real blast radius. Deliberately
-     **not fixed** without the user's explicit direction on how to
-     proceed (attempt a fix here for review, or report/handle upstream
-     separately from this project's Alpine-CI scope).
+   - **`rsend/send-c_stream_size_estimate` — real product bug, root
+     cause pinned precisely, fixed (2026-08-23) after the user asked
+     for a real attempt.** Traced past the original `bc: bad
+     expression` symptom (downstream side effect) to genuinely
+     corrupted `zfs send -nP` output. Precise diagnosis via `strace -f`
+     on `-e trace=write,writev,clone,tkill,lseek`: the "full" line's
+     `writev()` succeeds and returns the correct byte count; an
+     `lseek(fd, 0, SEEK_CUR)`/`ftello(3)` check immediately afterward
+     both correctly report the true post-write offset; yet the very
+     next `printf(3)` call to the same stream still lands its output at
+     file offset 0, overwriting the start of the file — byte-exact:
+     the number of bytes clobbered always equals the length of what
+     that next call wrote. This reliably follows
+     `estimate_size()`/`dump_snapshot()` in `lib/libzfs/
+     libzfs_sendrecv.c` creating a `send_progress_thread` (`pthread_
+     create`) and tearing it down via `send_progress_thread_exit()`
+     (`pthread_cancel` + `pthread_join`) shortly before the write.
+     Tried and empirically ruled out: an extra `fflush()` between the
+     writes (no effect, still corrupts). What actually and reliably
+     fixes it: bypassing `printf(3)`'s buffered path entirely for
+     these writes — build the complete line with `snprintf()`, then
+     emit it with one direct `write(2)` call. The *exact* libc-internal
+     mechanism (why `printf(3)`'s notion of "current position" would
+     diverge from what `lseek`/`ftello` both correctly report,
+     specifically after that thread create/cancel/join sequence) was
+     **not** fully pinned down — the fix is proven correct via
+     extensive repeated empirical testing (single-snapshot `-nP` and
+     multi-snapshot `-nPR` replicate, both correct after the fix; the
+     latter is the scenario `send_print_verbose()`'s multi-line output
+     exists for, and was not itself proven broken before the fix — only
+     the always-thread-preceded `estimate_size()`/`"size\t...\n"` call
+     sites were proven broken — but fixed defensively for consistency
+     since it shares the exact vulnerable pattern), not by fully
+     explaining musl's internals.
+     - Branch `claude/send_progress_race` (`32d09c43d`): adds a
+       `send_print_line()` helper (flush + single `write(2)`) to
+       `libzfs_sendrecv.c`, used
+       at all 3 sites that print `zfs send -P` output following a
+       progress-thread create/cancel/join cycle: `send_print_verbose()`'s
+       parsable branch (used by both `estimate_size()` and
+       `dump_snapshot()`/`zfs_send_cb_impl()`), and both `"size\t%llu
+       \n"` call sites. The non-parsable/human-readable verbose branch
+       is untouched (not proven affected, lower stakes since it's not
+       machine-parsed).
+     - This is real product code with correctness implications beyond
+       Alpine (every `zfs send -P`/`-v` invocation goes through this
+       path), not a test-script portability issue. The fix itself
+       (explicit flush + direct `write(2)` instead of relying on
+       `printf(3)`'s internal buffering/position-tracking) is a
+       platform-neutral, defensive pattern — correct and behaviorally
+       identical in output on every platform, not gated to Alpine/musl
+       — but genuine non-regression on glibc/FreeBSD **could not be
+       verified locally**; real CI is what actually confirms that,
+       same limitation as every other core-code change in this
+       project.
+     - Confirmed fixed: manual repro 8+/8+ clean runs, real ZTS test
+       8/8, full `rsend/` directory (79 tests) run for regressions —
+       see "Local validation results" for the outcome.
    - **Still open, no lead yet**: `procfs_list_stale_read` (fails because
      `grep "Input/output error"` doesn't match — the actual I/O error
      message text may differ on this kernel/musl, not confirmed).
@@ -552,10 +614,10 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `zfs_destroy_001_pos`/`_005_neg` fixed by `claude/mkbusy_kill_race`
   (a real kill/pgrep race, confirmed generic not Alpine-specific).
   `send-c_stream_size_estimate` traced to a real `zfs send` progress-
-  thread teardown race in `libzfs_sendrecv.c` — deliberately left
-  unfixed pending direction, see cluster 6 above. Still open, no lead:
-  `procfs_list_stale_read`, `zfs_get_006_neg` (getopt_permute ruled
-  out).
+  thread teardown race in `libzfs_sendrecv.c` — fixed by
+  `claude/send_progress_race` (`32d09c43d`), see cluster 6 above. Still
+  open, no lead: `procfs_list_stale_read`, `zfs_get_006_neg`
+  (getopt_permute ruled out).
 - Clusters 4 and 5 (the two crash clusters) are both still
   **unreproduced** despite real attempts this session (individual tests,
   full test-group batches, correct non-root user) — genuinely
@@ -570,11 +632,29 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 - GitHub push/PR/API access is now working (2026-08-23) — the user
   configured credentials and `gh`. Do not write credential details,
   token values, or where they're stored into this file or anywhere else
-  persistent; just that access works. All eleven branches (`baseline`,
-  `master`, `claude-meta`, `claude/mmp`, `claude/history_uncompress`,
-  `claude/user_namespace`, `claude/getopt_permute`, `claude/tzdata`,
-  `claude/libcap-utils`, `claude/linux-stable-kernel`,
-  `claude/mkbusy_kill_race`) are pushed and match `origin`. `claude/mmp`
-  and `claude/tzdata` each needed `--force-with-lease` once, after being
-  amended locally post-push (blank-line cleanup; commit-message line
-  length for `checkstyle`'s `commitcheck`, respectively).
+  persistent; just that access works. All eleven previously-pushed
+  branches (`baseline`, `master`, `claude-meta`, `claude/mmp`,
+  `claude/history_uncompress`, `claude/user_namespace`,
+  `claude/getopt_permute`, `claude/tzdata`, `claude/libcap-utils`,
+  `claude/linux-stable-kernel`, `claude/mkbusy_kill_race`) match
+  `origin`. `claude/mmp` and `claude/tzdata` each needed
+  `--force-with-lease` once, after being amended locally post-push
+  (blank-line cleanup; commit-message line length for `checkstyle`'s
+  `commitcheck`, respectively). `claude/send_progress_race` exists
+  locally (see above) but is **not yet pushed**.
+- **CI hygiene (2026-08-23)**: cleaned up 15 stale cancelled runs and 7
+  redundant successful `checkstyle` runs from the Actions history via
+  `gh run delete`. Separately, synced with upstream: fetched, fast-
+  forwarded `master` 8 commits to `84aa7e7e0` (none touch
+  `libzfs_sendrecv.c`/the send-progress-thread code — the race above
+  isn't independently fixed upstream), then rebased `baseline` onto it
+  (see the `baseline` bullet above for the resulting commit list).
+  Adopted a `[skip ci]` convention to stop `baseline`/`claude-meta`
+  pushes from burning CI cycles on branches that don't need it (docs,
+  or a rebase-only push with no new code): baked a standalone
+  `[skip ci]` body line into `baseline`'s permanent **DEBUG** commit
+  (self-perpetuating across every future rebase, since that commit is
+  always the tip) and into `claude-meta`'s current tip commit — new
+  `claude-meta` commits should carry it too going forward. Real
+  `claude/<topic>` fix branches are *not* included in this convention —
+  those still need real CI validation.

@@ -12,6 +12,10 @@ tracks upstream `master`.
 - **Small, targeted fixes.** One narrow cause per branch/commit, same
   shape as the existing `claude/*` branches (one file, one root cause,
   one commit each).
+- **Commit message body lines must be ≤72 chars.** `checkstyle`'s
+  `commitcheck` enforces this and fails the build otherwise (caught this
+  the hard way on `claude/tzdata`, 2026-08-23 — amended to fix). Wrap
+  commit messages accordingly from the start.
 - **This is meant to land upstream eventually — never break other
   platforms.** Prefer fixing things on the ZTS test-suite side (wrong
   assumption about GNU coreutils/glibc/bash behavior) over touching
@@ -229,12 +233,35 @@ Both split results into tests with known/expected non-PASS outcomes
    test. Backtrace shows a `libspl_backtrace`/signal handler firing from
    within `dbuf_destroy`, suggesting real memory corruption (not just an
    assertion), possibly exposed by musl's malloc behaving differently than
-   glibc's. Root cause **not yet investigated**. Affects at least:
-   `block_cloning_copyfilerange`, `block_cloning_lwb_buffer_overflow`,
-   `dedup_bclone`, `dedup_fdt_import`, `dedup_legacy_create`,
-   `dedup_legacy_fdt_upgrade`, likely `gang_blocks_ddt_copies`. This is
-   the highest-value cluster to dig into (6-7 tests, looks like a real bug
-   rather than a test-portability issue).
+   glibc's. Affects at least: `block_cloning_copyfilerange`,
+   `block_cloning_lwb_buffer_overflow`, `dedup_bclone`, `dedup_fdt_import`,
+   `dedup_legacy_create`, `dedup_legacy_fdt_upgrade`, likely
+   `gang_blocks_ddt_copies`. Still the highest-value cluster (looks like a
+   real bug, not a portability issue), but **not reproduced yet
+   (2026-08-23)**: manually reproduced `zdb -vvvvv <pool> -O <file>`
+   (the exact command `get_same_blocks` in `libtest.shlib` runs) standalone
+   5x and via the individual `block_cloning_copyfilerange`/`dedup_bclone`
+   tests — all clean. Ran the *entire* `block_cloning` + `dedup` groups
+   together (54 tests, closer to how CI actually exercises them, in case
+   it's accumulated-state/memory-pressure dependent) — still no crash,
+   52/54 passed. This is consistent with the crash being genuinely
+   non-deterministic (real heap corruption often is), so isolated repro
+   attempts may just need more tries, or it may need the surrounding
+   ~2000-test run's memory pressure to manifest — not yet resolved either
+   way. Enabled core dumps this session (`core_pattern` ->
+   `/var/tmp/core.%e.%p`, `ulimit -c unlimited`) in case it fires next
+   time; no core produced yet.
+   - **Aside, found while chasing this, unrelated**: two other tests in
+     the same run, `block_cloning_copyfilerange_clone` and
+     `_clone_partial` (not part of any previously-identified cluster —
+     may be new upstream tests), fail with `copy_file_range(CLONE):
+     Invalid argument` from `clonefile -F`. Looks like a kernel-capability
+     gap (`COPY_FILE_RANGE_CLONE` flag not supported by this kernel
+     build), reproducible standalone. Real CI's `_20260823` log also
+     shows related `block_cloning_clone_mmap_*` failures, so this is
+     plausibly a genuine current CI issue too — but it's a kernel-feature
+     question, not an Alpine/musl portability one, so it's outside this
+     project's scope. Noted, not investigated further.
 5. **musl `SIGILL` in `ld-musl-x86_64.so.1`** — `zpool_iostat`/
    `zpool_status` `-c` (custom command) variants and their plain
    `_005_pos`/`_003_pos` siblings crash with `trap invalid opcode` /

@@ -108,14 +108,16 @@ tracks upstream `master`.
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
     Stays here — see "This fork is a staging area" above.
-- Seven one-commit fix branches, each stacked directly on `baseline` and
+- Eight one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
-  **The first six validated locally as of 2026-08-23** (see "Local
-  validation results" below for the actual run output); the 7th
-  (`claude/linux-stable-kernel`) had its underlying mechanism verified
-  but not full ZTS-test execution — see cluster 7 above for exactly
-  what was and wasn't checked. None yet re-tested in real CI:
+  **Six validated locally with real ZTS test runs as of 2026-08-23** (see
+  "Local validation results" below for the actual run output);
+  `claude/linux-stable-kernel` had its underlying mechanism verified but
+  not full ZTS-test execution (see cluster 7 above for exactly what was
+  and wasn't checked); `claude/mkbusy_kill_race` was validated directly
+  (3/3 fail before, 3/3 pass after, see cluster 6 above). None yet
+  re-tested in real CI:
   - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
     `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
     `gethostid()` ignores `/etc/hostid` and always returns 0, so
@@ -175,8 +177,17 @@ tracks upstream `master`.
     and switches extlinux's default kernel accordingly. See cluster 7
     above for the full verification chain and what's still unconfirmed
     (`update-extlinux` itself, and a full real-CI boot).
+  - `claude/mkbusy_kill_race` (`9036c2fe9`, new 2026-08-23, cluster 6) —
+    `mkbusy` daemonizes and gets reparented to init; `zfs_destroy_001_
+    pos`/`_005_neg` killed it and immediately checked `pgrep -fl mkbusy`
+    with zero delay, racing init's reaping of the dead child. Confirmed
+    a generic timing race (reproduced standalone with no ZFS involved),
+    not Alpine/musl-specific — just loses the race more often here.
+    Added `kill_mkbusy()` (kill + poll up to 5s) to `zfs_destroy_
+    common.kshlib`, fixed all 5 call sites. Confirmed fixed: 3/3 passes
+    after, previously 3/3 failures.
 
-  Next for these seven: the user submits them upstream independently
+  Next for these eight: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -352,6 +363,24 @@ config, not a shared runner limitation.
        cleanly on a fresh local `baseline` run, unable to reproduce the
        original FAIL at all. Likely flaky, per the user's note that ZTS
        has known flaky failures independent of platform.
+     - `zfs_destroy_001_pos`/`_005_neg` — **real bug, fixed
+       (2026-08-23).** `ERROR: pgrep -fl mkbusy unexpectedly exited 0`
+       is not a BusyBox/GNU `pgrep` difference (that guess was wrong).
+       `mkbusy` (`tests/zfs-tests/cmd/mkbusy.c`) daemonizes: forks, the
+       parent prints the child's pid and exits immediately, and the
+       child is reparented to init. Both tests did `kill -TERM $pidlist`
+       immediately followed by `log_mustnot pgrep -fl mkbusy` with zero
+       delay — a real race against init reaping the now-dead child
+       before it disappears from a `pgrep` scan. Confirmed deterministic
+       (3/3 failures before the fix) and confirmed as a generic timing
+       race, not ZFS- or musl-specific: an isolated repro (`kill -TERM`
+       + immediate `pgrep`, no ZFS involved, in a tight loop) reproduced
+       the same race standalone. Fixed by new branch
+       `claude/mkbusy_kill_race`: added `kill_mkbusy()` to
+       `zfs_destroy_common.kshlib`, which kills the pidlist then polls
+       `pgrep` (up to 5s) instead of checking once immediately; updated
+       all 5 call sites across both tests. Confirmed fixed: 3/3 passes
+       after, previously 3/3 failures.
    - **Investigated, ruled out, still open**:
      - `zfs_get_006_neg` — a negative test asserting `zfs get all -r`
        (and 27 similar malformed invocations) must be *rejected*. Already
@@ -362,10 +391,7 @@ config, not a shared runner limitation.
        is something deeper in `zfs_do_get()`'s argument handling in
        `cmd/zfs/zfs_main.c` (likely how it manually scans for stray
        dash-prefixed operands after `getopt()` finishes) — not found.
-   - **Still open, no lead yet**: `zfs_destroy_001_pos`/`_005_neg` (fails
-     with `ERROR: pgrep -fl mkbusy unexpectedly exited 0` — smells like a
-     BusyBox-vs-GNU `pgrep` behavior difference, similar family to
-     cluster 1, not confirmed), `rsend/send-c_stream_size_estimate`
+   - **Still open, no lead yet**: `rsend/send-c_stream_size_estimate`
      (old lead from the original log: `bc: bad expression`, not
      re-verified this session), `procfs_list_stale_read` (fails because
      `grep "Input/output error"` doesn't match — the actual I/O error
@@ -497,9 +523,10 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   (`claude/libcap-utils` new; `claude/mmp` covers `zpool_split_props`
   too), several false leads ruled out (9 `cli_user/*` tests were a
   local testing-methodology bug, not real bugs; 3 more just flaky).
-  Still open: `zfs_destroy_001_pos`/`_005_neg`, `send-c_stream_size_
-  estimate`, `procfs_list_stale_read`, `zfs_get_006_neg` (getopt_permute
-  ruled out).
+  `zfs_destroy_001_pos`/`_005_neg` fixed by `claude/mkbusy_kill_race`
+  (a real kill/pgrep race, confirmed generic not Alpine-specific). Still
+  open: `send-c_stream_size_estimate`, `procfs_list_stale_read`,
+  `zfs_get_006_neg` (getopt_permute ruled out).
 - Clusters 4 and 5 (the two crash clusters) are both still
   **unreproduced** despite real attempts this session (individual tests,
   full test-group batches, correct non-root user) — genuinely
@@ -514,11 +541,11 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 - GitHub push/PR/API access is now working (2026-08-23) — the user
   configured credentials and `gh`. Do not write credential details,
   token values, or where they're stored into this file or anywhere else
-  persistent; just that access works. All ten branches (`baseline`,
+  persistent; just that access works. All eleven branches (`baseline`,
   `master`, `claude-meta`, `claude/mmp`, `claude/history_uncompress`,
   `claude/user_namespace`, `claude/getopt_permute`, `claude/tzdata`,
-  `claude/libcap-utils`, `claude/linux-stable-kernel`) are pushed and
-  match `origin`. `claude/mmp` and `claude/tzdata` each needed
-  `--force-with-lease` once, after being
+  `claude/libcap-utils`, `claude/linux-stable-kernel`,
+  `claude/mkbusy_kill_race`) are pushed and match `origin`. `claude/mmp`
+  and `claude/tzdata` each needed `--force-with-lease` once, after being
   amended locally post-push (blank-line cleanup; commit-message line
   length for `checkstyle`'s `commitcheck`, respectively).

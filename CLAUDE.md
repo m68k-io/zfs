@@ -164,7 +164,10 @@ directly (no nested qemu — this VM already *is* the Alpine target, per
   `mmp_degraded_import`/`mmp_zhack_reclaim`, same root cause, just not
   part of the July CI run's particular selection — confirmed as real
   failures in the fresh August CI run, see below). 17th
-  (`mmp_write_uberblocks`) needs `claude/getopt_permute` too.
+  (`mmp_write_uberblocks`) needs `claude/getopt_permute` too. **Also
+  fixes `cli_root/zpool_split/zpool_split_props`** (cluster 6, outside
+  the `mmp/` directory but calls `mmp_set_hostid` directly) — confirmed
+  standalone with `claude/mmp` alone, no other branch needed.
 - **`claude/getopt_permute`**: combined with `claude/mmp`, the 17th
   (`mmp_write_uberblocks`) also passes — full 17/17.
 - **`claude/history_uncompress`**: 10/10 `history/*` tests pass, but
@@ -238,11 +241,32 @@ Both split results into tests with known/expected non-PASS outcomes
    `segfault ... in ld-musl-x86_64.so.1`, reported via dmesg (`libshell.so`
    involved). Distinct from cluster 4 (different crash signature). Root
    cause **not yet investigated**.
-6. **Unexplained, not yet triaged**: `zfs_destroy_001_pos`/`_005_neg`,
-   `zfs_get_006_neg`, `zpool_split_props`, `zfs_unmount_001_neg`,
+6. **Unexplained, not yet fully triaged**: `zfs_destroy_001_pos`/
+   `_005_neg` (fails with `ERROR: pgrep -fl mkbusy unexpectedly exited 0`
+   — smells like another BusyBox-vs-GNU tool behavior difference,
+   similar family to cluster 1, not yet confirmed), `zfs_unmount_001_neg`,
    `zfs_list_002_pos`/`_003_pos`, `zpool_list_001_pos`, `rsend/
    send-c_stream_size_estimate`, `zoned_uid_023/025/026_pos`,
-   `procfs_list_stale_read`.
+   `procfs_list_stale_read` (fails with `grep "Input/output error"` not
+   matching — the actual I/O error message text may differ on this
+   kernel/musl, not yet confirmed).
+   - **`zpool_split_props` — resolved, not actually its own bug**: fails
+     with the identical `mmp_set_hostid` error as the `mmp/*` cluster
+     (calls it directly, outside the `mmp/` test directory). Confirmed
+     fixed by `claude/mmp` alone (2026-08-23) — no new branch needed,
+     this is bonus coverage from that existing fix.
+   - **`zfs_get_006_neg` — investigated, ruled out `getopt_permute`**:
+     a negative test asserting `zfs get all -r` (and 27 similar
+     malformed invocations) must be *rejected*. The test itself already
+     sets `export POSIXLY_CORRECT=1` before running these, i.e. upstream
+     already anticipated glibc's `getopt()` permutation and forces
+     strict parsing — so this was a reasonable first guess, but manual
+     testing (2026-08-23) shows `zfs get all -r <pool>` still succeeds
+     (should fail) even under `POSIXLY_CORRECT=1`, ruling out the
+     getopt-permutation theory for this one. Real cause is something
+     deeper in `zfs_do_get()`'s argument handling in `cmd/zfs/
+     zfs_main.c` (likely how it manually scans for stray dash-prefixed
+     operands after `getopt()` finishes) — not yet found.
 7. **SKIPs that should be PASS**: `zpool_expand_*` (3), `zpool_reopen_*`
    (7), `zpool_split_wholedisk`, `zpool_import_aux_paths`, `fault/auto_*`
    (8), `procfs/pool_state`. The logged CI VM only had two disks

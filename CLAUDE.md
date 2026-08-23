@@ -30,12 +30,21 @@ tracks upstream `master`.
 - **Never force ZFS teardown.** No `SIGKILL`/`-9` on a process holding a
   ZFS mount open, no lazy `umount -l` on a ZFS mount, no `zpool destroy
   -f` on a pool reporting busy. Escalating through that sequence during
-  an interrupted test run wedged the (`--enable-debug`) kernel module
-  into a hang with nothing captured in pstore, and required an external
-  hard reboot to recover (2026-08-23). If a pool/process/unmount reports
-  busy: stop, investigate (`fuser`, lingering test processes), or let
-  the test harness's own cleanup/interrupt path handle it — don't force
-  it.
+  an interrupted test run took down most services on the VM badly enough
+  (login process itself restarted, per the second login prompt the user
+  saw) that a reboot was the practical fix (2026-08-23) — exact
+  mechanism unconfirmed (no pstore capture, so possibly OOM-killer
+  fallout under memory pressure rather than a kernel-level deadlock; the
+  user could still log in, so it likely wasn't a full hang), but the
+  triggering sequence is clear enough to just avoid outright. If a pool/
+  process/unmount reports busy: stop, investigate (`fuser`, lingering
+  test processes), or let the test harness's own cleanup/interrupt path
+  handle it — don't force it.
+- **ZTS is known to be flaky** — the user confirms occasional failures
+  with no real cause happen on the glibc distros/Ubuntu too, not just
+  here. A single unexpected FAIL outside the current target list isn't
+  automatically a real bug; rerun before concluding anything, especially
+  for tests not directly related to whatever's being validated.
 - **Git identity convention**: real fixes intended for upstream are
   authored/signed-off as `Alexander Moch <mail@alexmoch.com>`, matching
   the precedent set by the three existing `claude/*` branches (DCO
@@ -193,16 +202,20 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
    vdevs via the `DISKS` env var (space-separated bare device names, e.g.
    `DISKS="sda sdb sdc nvme0n1 nvme1n1 nvme2n1"`), which is what cluster 7
    (disk-related SKIPs) will need to investigate.
-6. **Note for later, not yet acted on**: `zfs-tests.sh` reports `Missing
-   util(s): capsh groupadd groupdel groupmod useradd userdel usermod` on
-   this VM — the `shadow` package (has `useradd`/`groupadd`/etc.) is
-   available in the Alpine repos but genuinely isn't in CI's `alpine()`
-   dep list either, so this isn't a local-environment gap, it's true of
-   the real CI runner too. Deliberately left uninstalled to keep this VM
-   matching CI's environment exactly. Plausibly related to the
-   `zoned_uid_*` failures in cluster 6 (untriaged) — worth checking
-   whether those tests skip or fail because of it, next time that
-   cluster is investigated.
+6. **Correction (2026-08-23)**: earlier assumed `useradd`/`groupadd`/etc.
+   being absent (`zfs-tests.sh`'s `Missing util(s): ...` line) matched
+   real CI, since they're not in `qemu-3-deps-vm.sh`'s explicit `alpine()`
+   package list. That was wrong — validating `claude/history_uncompress`
+   locally, `history_009_pos`/`history_010_pos` (which need `useradd`)
+   FAILed here but PASSed in the real logged CI run
+   (`logs/qemu-alpine3-24_20260713/vm1log.txt`), so CI's actual Alpine
+   VM does have `useradd` available somehow — evidently from the base
+   cloud image (`qemu-2-start.sh`'s `openzfs` zvol image), not from the
+   explicit deps script. `sudo apk add shadow` on this VM closes the gap
+   (confirmed: both tests pass afterwards). Do this on any fresh VM
+   before trusting local ZTS results — the `capsh` part of that missing-
+   util list is unrelated (from `libcap-utils`) and still genuinely
+   absent; hasn't been checked whether anything needs it.
 
 ## Current status / next steps
 

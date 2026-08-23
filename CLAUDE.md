@@ -7,6 +7,36 @@ Get the GitHub Actions **Alpine CI runner** (`zfs-qemu.yml`, matrix entry
 `https://github.com/m68k-io/zfs`. Upstream is `openzfs/zfs`; `master` here
 tracks upstream `master`.
 
+## Working principles
+
+- **Small, targeted fixes.** One narrow cause per branch/commit, same
+  shape as the three existing `claude/*` branches (one file, one root
+  cause, one commit each).
+- **This is meant to land upstream eventually — never break other
+  platforms.** Prefer fixing things on the ZTS test-suite side (wrong
+  assumption about GNU coreutils/glibc/bash behavior) over touching
+  `module/`/`lib/` core code, whenever the root cause is really a
+  test-portability issue rather than a product bug. When a cluster does
+  turn out to be a genuine product bug (current leading suspect: the zdb
+  teardown crash, cluster 4 — looks like real memory corruption, not a
+  portability issue), any core-code fix must be either musl/Alpine-scoped
+  or genuinely correct on every platform. Flag such changes for extra
+  scrutiny: this VM can't run the FreeBSD or other-Linux-distro legs of
+  ZTS, so non-regression on those platforms can't be verified locally —
+  say so explicitly rather than assuming safety.
+- **Logs stay external to the zfs tree**, in the sibling `~/Development/
+  logs/` directory — they're CI run artifacts, not source, and
+  `claude/*` branches need to stay cherry-pick-clean for upstream PRs.
+- **Git identity convention**: real fixes intended for upstream are
+  authored/signed-off as `Alexander Moch <mail@alexmoch.com>`, matching
+  the precedent set by the three existing `claude/*` branches (DCO
+  sign-off needs to trace to a real accountable person). Meta/non-
+  upstream-bound commits (docs, CI-restriction toggles, anything on
+  `claude-meta`) use `Claude <claude@alexmoch.com>` instead. No default
+  git identity is configured repo-wide — set it explicitly per commit
+  (e.g. `git -c user.name=... -c user.email=... commit ...`) so the two
+  never get mixed up by accident.
+
 ## Repo layout (`~/Development/zfs`)
 
 - `origin` = `https://github.com/m68k-io/zfs.git` (this fork). No GitHub

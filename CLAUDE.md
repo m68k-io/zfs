@@ -10,8 +10,8 @@ tracks upstream `master`.
 ## Working principles
 
 - **Small, targeted fixes.** One narrow cause per branch/commit, same
-  shape as the three existing `claude/*` branches (one file, one root
-  cause, one commit each).
+  shape as the existing `claude/*` branches (one file, one root cause,
+  one commit each).
 - **This is meant to land upstream eventually — never break other
   platforms.** Prefer fixing things on the ZTS test-suite side (wrong
   assumption about GNU coreutils/glibc/bash behavior) over touching
@@ -77,12 +77,24 @@ tracks upstream `master`.
 ## Repo layout (`~/Development/zfs`)
 
 - `origin` = `https://github.com/m68k-io/zfs.git` (this fork). No GitHub
-  token configured yet, so no push/PR/API access — ask before assuming
-  it's available.
+  credentials configured — confirmed by trying `git push` (2026-08-23,
+  see "Current status" below), not just an assumption. No push/PR/API
+  access until the user provides a token.
 - `master` — mirrors upstream `openzfs/zfs` master, unmodified.
-- `baseline` — the base branch for all future work. All new branches
-  fork from `baseline` and are named `claude/<topic>` (e.g.
-  `claude/mmp`). `baseline` itself + `master` + Alpine/musl build fixes:
+- `baseline` — the base branch to fork new work from, **not** a branch
+  that fix branches ever get merged into. The actual flow: real fix
+  commits on `claude/<topic>` branches get merged into upstream
+  `openzfs/zfs` master independently by the user (via the separate
+  `github.com/alex-moch` account/process — see "This fork is a staging
+  area" below), this fork's `master` then gets updated to match upstream,
+  and `baseline` gets rebased onto the new `master`. So `baseline` is
+  always "current upstream master + whatever local-only staging
+  conveniences don't belong upstream" (right now: the permanent
+  `**DEBUG**` commit) — never a growing pile of merged fix commits.
+  `claude/<topic>` branches are effectively disposable once their
+  commit(s) land upstream: the code reaches `baseline` naturally through
+  the master-sync-and-rebase, not through a merge from the branch.
+  `baseline` itself + `master` + Alpine/musl build fixes:
   - `4cac946ce` — `alignas(type)` is C11; musl's `stdalign.h` exposes it
     unconditionally (unlike glibc, which gates it behind C11), so it broke
     the `-std=gnu99` build. Fixed with `alignas(__alignof__(uint64_t))`.
@@ -92,11 +104,11 @@ tracks upstream `master`.
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
     Stays here — see "This fork is a staging area" above.
-- Five unmerged, one-commit fix branches, each stacked directly on
-  `baseline` and each targeting one root cause. **All five validated
-  locally as of 2026-08-23** (see "Local validation results" below for
-  the actual run output); none merged into `baseline` yet, not yet
-  re-tested in CI:
+- Five one-commit fix branches, each stacked directly on `baseline` and
+  each targeting one root cause. Not meant to be merged into `baseline`
+  (see above) — meant to go to upstream `openzfs/zfs` independently.
+  **All five validated locally as of 2026-08-23** (see "Local validation
+  results" below for the actual run output), not yet re-tested in CI:
   - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
     `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
     `gethostid()` ignores `/etc/hostid` and always returns 0, so
@@ -136,8 +148,10 @@ tracks upstream `master`.
     — confirmed via `grep -rl "TZ=" tests/zfs-tests/tests/functional/`
     that `history_007_pos` is the only test affected.
 
-  These five branches likely need to be rebased together onto one
-  branch and merged into `baseline` once CI-confirmed.
+  Next for these five: the user submits them upstream independently
+  (each is small/targeted enough to go as its own PR, matching the
+  "small, targeted fixes" principle). Not this fork's job to merge or
+  combine them.
 
 ## Local validation results (2026-08-23)
 
@@ -166,8 +180,8 @@ directly (no nested qemu — this VM already *is* the Alpine target, per
   (2 SKIP, 4 PASS once `_001` is fixed) matches both real CI logs
   (July and August) exactly, confirming it's not a local artifact.
 
-Not yet done: merging these five into one branch, a full local ZTS run,
-and re-running through actual CI.
+Not yet done: submitting these five upstream, a full local ZTS run, and
+re-running through actual CI.
 
 ## Latest CI runs: `logs/qemu-alpine3-24_20260713/` and `_20260823/`
 
@@ -304,12 +318,17 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 - Basics are done: `baseline` builds and installs cleanly, kernel module
   loads, ZTS runs (both file-vdev and real-disk modes confirmed).
 - All five `claude/*` fix branches are locally validated (see "Local
-  validation results" above). None merged into `baseline` yet, per
-  user's preference to validate first — next natural step is rebasing
-  them together onto one branch and merging, once desired.
+  validation results" above), ready for the user to submit upstream
+  independently — not this fork's job to merge or combine them (see
+  "Repo layout" above for the actual flow: upstream PR -> update this
+  fork's `master` -> rebase `baseline`).
 - Not yet run the full test suite locally, and not yet dug into any of
   the still-untriaged failure clusters (4/5/6/7 above) — the
   `claude/getopt_permute` discovery is the closest lead into cluster 6,
   worth a dedicated sweep for other flags-after-positional-arg instances
   across the test suite.
-- GitHub token not yet available — user may add one later.
+- GitHub token not yet available for push/PR/API access. Tried pushing
+  `claude-meta` on 2026-08-23 to check — failed cleanly (`could not read
+  Username for 'https://github.com'`), no credential helper or stored
+  token configured. Nothing else to troubleshoot there; needs the user
+  to provide credentials.

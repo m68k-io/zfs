@@ -31,11 +31,19 @@ tracks upstream `master`.
   authored/signed-off as `Alexander Moch <mail@alexmoch.com>`, matching
   the precedent set by the three existing `claude/*` branches (DCO
   sign-off needs to trace to a real accountable person). Meta/non-
-  upstream-bound commits (docs, CI-restriction toggles, anything on
-  `claude-meta`) use `Claude <claude@alexmoch.com>` instead. No default
-  git identity is configured repo-wide — set it explicitly per commit
-  (e.g. `git -c user.name=... -c user.email=... commit ...`) so the two
-  never get mixed up by accident.
+  upstream-bound commits (docs, `claude-meta` branch) use the canonical
+  `Claude $MODEL_NAME <noreply@anthropic.com>` identity instead (e.g.
+  `Claude Sonnet 5 <noreply@anthropic.com>` for this session — substitute
+  whichever model is actually running). No default git identity is
+  configured repo-wide — set it explicitly per commit (e.g. `git -c
+  user.name=... -c user.email=... commit ...`) so the two never get
+  mixed up by accident.
+- **This fork (`m68k-io/zfs`) is a staging area, not the final upstream
+  source.** The user does final quality assurance and cherry-picks real
+  fix commits into a second, separate GitHub account before anything
+  goes to `openzfs/zfs`. So: the `**DEBUG**` CI-restriction commit on
+  `baseline` is intentional and stays — it's local to this staging fork,
+  never gets cherry-picked, and doesn't need reverting.
 
 ## Repo layout (`~/Development/zfs`)
 
@@ -51,9 +59,10 @@ tracks upstream `master`.
     the `-std=gnu99` build. Fixed with `alignas(__alignof__(uint64_t))`.
   - `493476596` — fixed stale CDDL boilerplate in the FIDEDUPERANGE tests
     that broke `spdxcheck.pl`.
-  - `0abdab84f` — **DEBUG**, temporary: restricts CI to a runner subset
-    (`alpine3-24, almalinux10, debian13, fedora44, freebsd15-1r, ubuntu26`)
-    to save cycles while iterating. **Revert before merging upstream/finishing.**
+  - `0abdab84f` — **DEBUG**, intentionally permanent on this staging fork:
+    restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
+    fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
+    Stays here — see "This fork is a staging area" above.
 - Three unmerged, one-commit fix branches, each stacked directly on
   `baseline` and each targeting one known Alpine-specific ZTS failure
   cluster (see below). Not yet merged into `baseline`, not yet re-tested

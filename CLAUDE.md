@@ -118,7 +118,7 @@ tracks upstream `master`.
     onto a freshly-synced `master`: git recognized it as patch-id-
     equivalent to an already-upstream commit and dropped it automatically,
     leaving only the two commits above.
-- Nine one-commit fix branches, each stacked directly on `baseline` and
+- Ten one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
   **Six validated locally with real ZTS test runs as of 2026-08-23** (see
@@ -205,9 +205,24 @@ tracks upstream `master`.
     print after a `send_progress_thread` create/cancel/join cycle.
     Branched from `baseline` (not bare `master` — see the `baseline`
     bullet above on why), rebuilt and reinstalled clean, re-verified 8/8
-    on the new base before committing.
+    on the new base before committing. Superseded as the *root-cause*
+    fix by `claude/lzc_send_wrapper_splice_race` below, but still a
+    valid, independent, harmless improvement in its own right.
+  - `claude/lzc_send_wrapper_splice_race` (`1c4bb02cc`, new
+    2026-08-23, the real root cause of the same bug as
+    `claude/send_progress_race` above) — `lzc_send_wrapper()`'s
+    internal `send_worker()` relay thread `splice()`s into the
+    caller's destination fd using an implicit, shared kernel file
+    position, which races with callers (like `estimate_size()`) that
+    write to that same fd right after the wrapper returns. Fix: give
+    `splice()` an explicit, thread-local output offset instead, and
+    re-sync it onto the fd with one `lseek()` after `pthread_join()`.
+    See cluster 6 above for the full investigation and validation
+    (40/40 + 20/20 + a real send/receive round trip, all using the
+    *original* unfixed `libzfs_sendrecv.c` to prove this fix alone is
+    sufficient).
 
-  Next for these nine: the user submits them upstream independently
+  Next for these ten: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -494,18 +509,58 @@ config, not a shared runner limitation.
        concurrent direct writer on the same fd would reproduce on any
        distro give the right scheduling; Alpine/this environment's
        timing just seems to hit the race window very reliably.
-     - **Net effect on the existing fix**: `claude/send_progress_race`
-       stays committed and correct as a real, tested mitigation — it
-       just no longer needs the "libc-internal mechanism unknown"
-       caveat, replaced by "narrows the window against an
-       `lzc_send_wrapper()`-level race, doesn't close it structurally."
-       A more principled fix belongs in `lzc_send_wrapper()`/
-       `send_worker()` itself (e.g. not sharing the raw destination fd
-       between the splice-relay thread and the caller's own direct
-       writes) but that's a separate, more invasive change affecting
-       every `lzc_send_wrapper()` caller, not just the parsable-output
-       path — not attempted this session, flagged for the user to
-       decide whether it's worth a dedicated branch.
+     - **The principled fix was attempted and confirmed
+       (2026-08-23, same session, user asked to keep digging into
+       `lzc_send_wrapper()` specifically).** New branch
+       `claude/lzc_send_wrapper_splice_race` (`1c4bb02cc`, based on
+       `baseline` like the other fix branches, **not** stacked on
+       `claude/send_progress_race`): in `lzc_send_wrapper()`,
+       `send_worker()`'s `splice(from, NULL, to, NULL, ...)` used a
+       `NULL` output offset — implicit, shared-kernel-file-position
+       mode. Changed to an **explicit**, thread-local offset
+       (`&ctx.pos`, seeded once from `lseek(orig_fd, 0, SEEK_CUR)`
+       before the thread starts, re-synced onto `orig_fd` with a
+       single `lseek(orig_fd, ctx.pos, SEEK_SET)` after
+       `pthread_join()`) — falls back to the old `NULL` behavior if
+       `orig_fd` isn't seekable. This means `send_worker()` never
+       touches the shared implicit position at all while the caller
+       could be concurrently relying on it, sidestepping the entire
+       race class regardless of its exact kernel-level mechanism
+       (which — see above — wasn't fully pinned down: attempting to
+       reconcile the precise thread-creation order against
+       `estimate_size()`'s source hit a real, unresolved contradiction
+       that wasn't worth further budget chasing once the structural
+       fix was in hand and proven).
+       - **Confirmed to be the true, sufficient root-cause fix**: built
+         and tested this change *by itself*, on `baseline`, with the
+         **original, unmodified** `estimate_size()`/
+         `send_print_verbose()` (i.e. the pre-`send_progress_race`
+         `fprintf(3)`-based code) — 40/40 clean `zfs send -nP`
+         (single snapshot), 20/20 clean `zfs send -nPR` (multi-
+         snapshot replicate, exercises multiple `estimate_size()` /
+         `lzc_send_wrapper()` cycles per run), and a real
+         `zfs send | zfs receive` round trip confirmed byte-identical
+         data (`diff -r` clean) — proving the fix doesn't harm actual
+         stream relaying, only removes the race on the destination
+         fd's position.
+       - Net effect on `claude/send_progress_race`: still committed,
+         still a correct and harmless improvement (avoiding
+         `fprintf(3)`'s buffering for machine-parsed output is
+         defensible on its own merits), but it is **not** the root-
+         cause fix — `claude/lzc_send_wrapper_splice_race` is. Both
+         branches are independent (each based on `baseline`, neither
+         depends on the other) and both are safe to submit upstream;
+         the `send_progress_race` commit message/rationale predates
+         this finding and still frames it as a libc mystery — leaving
+         that commit's text as-is (it's already pushed/real) rather
+         than rewriting published history, corrected here instead.
+       - Formal ZTS re-run for this specific fix (`rsend/send-
+         c_stream_size_estimate`) hit an unrelated test-runner harness
+         permission issue in the time available (symlink creation
+         under `tests/zfs-tests/bin/` when run as the `zfs` user) —
+         not chased down; the manual validation above (60 iterations
+         + a real send/receive round trip, zero failures) was judged
+         sufficient given the session's remaining budget.
      - Branch `claude/send_progress_race` (`32d09c43d`): adds a
        `send_print_line()` helper (flush + single `write(2)`) to
        `libzfs_sendrecv.c`, used at all 3 sites that print
@@ -689,8 +744,10 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `origin`. `claude/mmp` and `claude/tzdata` each needed
   `--force-with-lease` once, after being amended locally post-push
   (blank-line cleanup; commit-message line length for `checkstyle`'s
-  `commitcheck`, respectively). `claude/send_progress_race` exists
-  locally (see above) but is **not yet pushed**.
+  `commitcheck`, respectively). `claude/send_progress_race` and
+  `claude/lzc_send_wrapper_splice_race` are both pushed too, bringing
+  the total to thirteen branches (`baseline`, `master`, `claude-meta`,
+  eight original fix branches, and these two).
 - **CI hygiene (2026-08-23)**: cleaned up 15 stale cancelled runs and 7
   redundant successful `checkstyle` runs from the Actions history via
   `gh run delete`. Separately, synced with upstream: fetched, fast-

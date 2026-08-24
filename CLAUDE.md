@@ -995,7 +995,10 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   predicted, with two expected exceptions (each branch is
   independently upstream-bound, so a test needing two branches
   combined still fails on either alone — by design, not a problem):
-  `send_progress_race` (PASS), `mkbusy_kill_race` (2/2 PASS),
+  `send_progress_race` (**PASS was wrong — see the 2026-08-24 correction
+  below; this was misread from the ZTS test result alone, without
+  noticing the run's own build had failed on 3 platforms**),
+  `mkbusy_kill_race` (2/2 PASS),
   `libcap-utils` (5/5 PASS), `history_uncompress` (2/2 PASS — notably
   *without* needing `tzdata` on real CI, unlike locally; real CI's
   Alpine image likely already ships `tzdata`, unlike this session's
@@ -1205,3 +1208,40 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   up). This was a deliberate choice to defer burning CI cycles on
   this batch, not a standing policy — future pushes to these branches
   should get real CI runs as normal unless told otherwise again.
+- **Real bug found and fixed in `claude/send_progress_race`
+  (2026-08-24), correcting a wrong "PASS" claim above.** User asked
+  to check why the non-Alpine legs of the orphaned `combined-review`
+  run (`32758399185`) all failed — that run itself was stale/deleted
+  branch noise, but the failure inside it was real: every glibc
+  platform (`ubuntu24`, `fedora44`, `almalinux10`, `debian13`,
+  `centos-stream9/10`, `ubuntu22/26`, `almalinux8/9`, `debian12`)
+  failed to even *build*, with `lib/libzfs/libzfs_sendrecv.c:1099:16:
+  error: ignoring return value of 'write' declared with attribute
+  'warn_unused_result' [-Werror=unused-result]` — `send_print_line()`
+  used `(void) write(...)`, and a bare `(void)` cast does not silence
+  `-Wunused-result` for glibc's fortified (`-D_FORTIFY_SOURCE=3`)
+  `write()`, so `-Werror` turned it into a hard build failure on every
+  glibc target. musl doesn't fortify `write()` the same way, which is
+  why this never showed up in any local Alpine testing.
+  Checked further and found this wasn't just the stale run: the real
+  CI run for `claude/send_progress_race`'s own branch (`32657510068`,
+  2026-08-23) hit the identical error on 3 of its 6 DEBUG-matrix
+  platforms (`fedora44`, `almalinux10`, `debian13`) — the branch's
+  overall run conclusion was `failure`, not the `PASS` recorded above;
+  that entry was written from the ZTS test result alone, without
+  noticing the run's own build had failed elsewhere in the same
+  matrix. Fixed (still open, not yet re-merged upstream) by capturing
+  `write()`'s result in a `__maybe_unused` variable instead of casting
+  it to `void` — the same idiom already used for this exact situation
+  elsewhere in the tree (`lib/libspl/backtrace.c`,
+  `cmd/zstream/zstream_backtrace.c`). Verified it compiles clean
+  locally (musl can't reproduce the glibc-specific warning itself, so
+  this only confirms no regression, not that the original error is
+  gone); amended into the existing commit (`9dcd82329` ->
+  `9ce9083b1`) since it's a fix to that same commit's own bug, not a
+  new logical change, and force-with-leased the result to `origin`.
+  **Unlike the rebase batch above, this push's CI run was deliberately
+  left running** (not cancelled) specifically to get real confirmation
+  the glibc build error is actually gone — check
+  `gh run list --repo m68k-io/zfs --branch claude/send_progress_race`
+  for the outcome next session if not already known.

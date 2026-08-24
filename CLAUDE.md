@@ -658,6 +658,63 @@ config, not a shared runner limitation.
    crash, no dmesg entries. Same open question as cluster 4: genuinely
    non-deterministic, or only manifests under the full suite's
    accumulated state/memory pressure. Not resolved.
+   - **Real progress (2026-08-24, user asked to check the `-c` tests
+     specifically after seeing them FAIL in a real summary).** The
+     "not reproduced... as the correct `zfs` user" conclusion above
+     turned out to be incomplete, not wrong about the user mixup being
+     *a* real methodology bug, but wrong that it was the *whole*
+     explanation: pulled the actual `failed.txt` block for these tests
+     from the `_20260823` Alpine run and it explicitly says
+     `(run as zfs)` — real CI already runs them as the correct user and
+     they still crash there. Decoded the crash properly this time
+     instead of treating it as an opaque one-liner: all six `-c`
+     variants (`zpool_iostat`/`zpool_status` × `disable`/`homedir`/
+     `searchpath`) segfault at **the exact same offset** (`0x20944`)
+     inside `ld-musl-x86_64.so.1`, with byte-identical disassembly in
+     every dmesg line — not a flaky/random crash, a fully deterministic
+     one. The faulting bytes are musl's classic word-at-a-time
+     `strlen`-family zero-byte-detection bit trick (`0xfefefefefefefeff`
+     / `0x8080808080808080`, an 8-bytes-at-a-time scan) — i.e., some
+     buffer is being `strlen()`'d and the scan runs off the end of a
+     mapped page before finding a NUL. **Confirmed genuinely
+     Alpine/musl-specific, not just untested elsewhere**: the same
+     `_20260823` run's `fedora44`, `debian13`, and `almalinux10` output
+     logs for this exact test all show a clean `SUCCESS`/PASS — real
+     evidence, not an assumption.
+     **New lead, not chased further yet**: decoded the crashing
+     process's `comm` field via Linux's 15-char `TASK_COMM_LEN`
+     truncation — `"zpool_iostat_-c_disable"[:15]` is exactly
+     `"zpool_iostat_-c"`, matching the dmesg `comm` byte-for-byte. That
+     means the crashing process is almost certainly **the `ksh93` test
+     script interpreter itself** (which renames its own process title
+     to the running script's basename), not the `zpool` CLI binary —
+     `comm` only reflects the *original* script name at crash time if
+     the crash happens before any `exec()` replaces the process image,
+     which rules out a forked-and-exec'd child like `zpool` or `awk`
+     showing up under this name. This lines up with, and sharpens, the
+     original "`libshell.so` involved" detail already noted above
+     (`libshell.so.4` is ksh93's own shell-execution library, confirmed
+     via `ldd /bin/ksh` on this VM) — the bug is most likely in ksh93's
+     interaction with musl, triggered by something in these specific
+     test scripts' own constructs (env var manipulation, `typeset`,
+     command substitution setup, etc.), not in `zpool`'s C code at all.
+     **Still not reproduced**: ~50 manual attempts this session (single
+     runs, a 20-iteration loop, and a 30-iteration loop faithfully
+     replicating all three `-c` variants' actual logic — disable/enable/
+     unset, `$HOME/.zpool.d`, `ZPOOL_SCRIPTS_PATH` with two dirs) as
+     user `zfs` — zero crashes. The real `zfs-tests.sh -t <test>`
+     harness invocation hit the same `STF_SUITE`/path-resolution quirk
+     noted elsewhere in this file (`-u zfs` didn't clear it either) —
+     not re-debugged, per established practice here of trusting direct
+     manual replication over fighting that harness quirk. Since the new
+     theory implicates `ksh93` interpreting the *actual script file*
+     rather than any command this session hand-typed, that harness gap
+     is more likely to matter here than it has for other clusters —
+     manual command replication cannot trigger a bug that lives in how
+     ksh parses/executes the literal script text. Next step, if
+     revisited: get the real harness running this specific test (fix or
+     route around the path-resolution issue) rather than continue
+     hand-replicating the commands.
 6. **Cluster 6 triage, 2026-08-23** — went through the full original
    list. Methodology note that applies to all of this: local `-t <path>`
    runs default to root; several `cli_user/*` tests need `-u zfs`

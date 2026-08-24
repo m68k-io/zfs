@@ -123,9 +123,12 @@ tracks upstream `master`.
     it as patch-id-equivalent to the now-upstream `2aadd7307` and dropped
     it automatically, same self-cleaning behavior as the CDDL fix before
     it. `baseline` no longer carries any local-only build fix — just the
-    DEBUG commit below. `master` alone should build again in this
-    environment now that this landed; not re-verified this session, but
-    no reason it wouldn't.
+    DEBUG commit below. **Confirmed for real (2026-08-24, later the same
+    day)**: checked out bare `master`, ran `autogen.sh && configure &&
+    make` end to end — clean build, exit 0. The old standing rule
+    ("master alone does not build in this environment — always build
+    against `baseline`") is retired as of this commit; bare `master`
+    is fine to build against now.
   - `64740cac5` (now `06a89ec7e` after the 2026-08-24 rebase) —
     **DEBUG**, intentionally permanent on this staging fork:
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
@@ -935,7 +938,10 @@ config, not a shared runner limitation.
   outer Ubuntu-orchestrates-qemu layer
   (`.github/workflows/scripts/qemu-*.sh`) locally — we work directly
   inside the Alpine environment those scripts would otherwise set up.
-- Alpine 3.24.1 VM, 16 vCPU, 32G RAM, kernel 6.18.44-0-virt.
+- Alpine 3.24.1 VM, 16 vCPU, 32G RAM, kernel **7.1.5-0-stable**
+  (switched from `6.18.44-0-virt` on 2026-08-24, see "Current status"
+  below — `linux-virt`/`linux-lts` are no longer installed at all, only
+  `linux-stable`, matching what `master`'s CI now provisions).
 - System disk `/dev/vda` — **do not touch**.
 - Six empty scratch block devices directly attached to this VM, standing
   in for whatever test/scratch disks the real CI Alpine VM gets:
@@ -1284,3 +1290,34 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   the glibc build error is actually gone — check
   `gh run list --repo m68k-io/zfs --branch claude/send_progress_race`
   for the outcome next session if not already known.
+- **This VM's kernel switched from `linux-virt` to `linux-stable`
+  (2026-08-24), to match what `master`'s CI now provisions.** Prompted
+  by the user asking to check out `master` and evaluate what the VM
+  itself needed to change. Evaluation found: (a) bare `master` now
+  builds cleanly here (confirmed for real, see the `a983deb6e` bullet
+  above) — the old "always build against `baseline`" rule is retired;
+  (b) `linux-stable-dev` was missing from an otherwise-complete package
+  list (every other package in `master`'s current
+  `qemu-3-deps-vm.sh` was already installed); (c) the VM was still
+  booting `linux-virt` even though `linux-stable` had been installed
+  earlier (cluster 7 investigation) but never made the persistent
+  default. First attempt was to set `GRUB_DEFAULT` and regenerate
+  `grub.cfg` (this VM boots via GRUB with multiple kernel entries,
+  unlike real CI's cloud image which boots via bare `extlinux` with a
+  `default=` line — the `linux-stable-kernel` branch's `sed` fix
+  doesn't apply here directly). The user then suggested a cleaner
+  alternative: just uninstall `linux-virt`/`linux-virt-dev` (and,
+  as it turned out, `linux-lts` too) instead of managing
+  `GRUB_DEFAULT` — closer to what a real, ephemeral CI VM actually
+  looks like (those never have `linux-virt` installed at all under the
+  current deps script) and avoids an index-shift landmine (if
+  `GRUB_DEFAULT=1` were left set while an entry above it got removed,
+  it would silently point at the wrong kernel afterward). `apk del`
+  needed the user to run directly (blocked by the permission classifier
+  as a risky action from this session). Installed `linux-stable-dev`,
+  rebuilt/reinstalled ZFS against the new kernel (`configure` picked up
+  `/usr/src/linux-headers-7.1.5-0-stable` correctly, clean build,
+  modules load: `zfs-2.4.99-1`/`zfs-kmod-2.4.99-1`), and directly
+  confirmed the actual point of the switch: `modprobe scsi_debug
+  dev_size_mb=64` now creates a real synthetic disk (`CONFIG_SCSI_DEBUG
+  =m` live), which it could not on `linux-virt`.

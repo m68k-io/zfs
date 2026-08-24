@@ -141,11 +141,16 @@ tracks upstream `master`.
     equivalent to an already-upstream commit and dropped it automatically,
     leaving only the two commits above (now just the one DEBUG commit,
     per the `a983deb6e` update above).
-- **Nine one-commit fix branches remain** (originally thirteen; four
-  deleted 2026-08-24 — see "Current status" below), each stacked directly
-  on `baseline` and each targeting one root cause. Not meant to be merged
-  into `baseline` (see above) — meant to go to upstream `openzfs/zfs`
-  independently.
+- **Eight one-commit fix branches remain** (originally thirteen; four
+  deleted 2026-08-24 as merged/withdrawn, and `tzdata`+`libcap-utils`
+  combined into one new branch, `claude/alpine_ci_deps` — see "Current
+  status" below for both), each stacked directly on `baseline` and each
+  targeting one root cause (`claude/alpine_ci_deps` is a deliberate,
+  narrow exception — two CI-provisioning package additions in one
+  commit, not two separate root causes, done specifically because they
+  collide on the same wrapped `apk add` line in `qemu-3-deps-vm.sh`).
+  Not meant to be merged into `baseline` (see above) — meant to go to
+  upstream `openzfs/zfs` independently.
   **Six validated locally with real ZTS test runs as of 2026-08-23** (see
   "Local validation results" below for the actual run output);
   `claude/linux-stable-kernel` had its underlying mechanism verified but
@@ -193,7 +198,14 @@ tracks upstream `master`.
     UTC, 6 hours off. This is a CI-provisioning fix (`tzdata` added to
     `qemu-3-deps-vm.sh`'s `alpine()` package list), not a test-script fix
     — confirmed via `grep -rl "TZ=" tests/zfs-tests/tests/functional/`
-    that `history_007_pos` is the only test affected.
+    that `history_007_pos` is the only test affected. **Superseded
+    2026-08-24**: this branch was deleted (local + `origin`) after being
+    rebased onto the post-first-batch `baseline` hit a real conflict —
+    the now-merged `linux-stable-kernel` PR reflowed the same wrapped
+    `apk add` package list this fix touches (`linux-virt`->`linux-stable`
+    shifted the line wrapping). Combined with `claude/libcap-utils`
+    (same conflict, same file) into one new branch, `claude/alpine_ci_deps`
+    — see "Current status" below.
   - `claude/libcap-utils` (`34789f470`, new 2026-08-23, found during
     cluster-6 triage) — `zoned_uid_common.kshlib`'s `run_in_userns_caps()`
     needs `capsh` (from `libcap-utils`, missing from CI's Alpine dep
@@ -204,7 +216,9 @@ tracks upstream `master`.
     `zoned_uid_023/025/026/030_pos` and turns the `device_access_add`
     SKIP into a genuine PASS; `capsh` is also referenced by
     `device_access.kshlib` and other `zoned_uid` tests not individually
-    re-verified, so the real scope is likely wider.
+    re-verified, so the real scope is likely wider. **Superseded
+    2026-08-24**: same fate as `claude/tzdata` above — deleted, combined
+    into `claude/alpine_ci_deps`.
   - `claude/linux-stable-kernel` (`74f10cadb`, new 2026-08-23, cluster 7)
     — Alpine's `linux-virt` kernel (what CI boots) has
     `CONFIG_SCSI_DEBUG` compiled out, which 17 tests need to simulate
@@ -1154,3 +1168,40 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   per "Repo layout" above, this first batch resolving is the trigger
   condition for the user to submit those nine personally; not yet
   requested, so not started unprompted.
+- **Remaining nine fix branches rebased onto the new `baseline`, and
+  `tzdata`+`libcap-utils` combined (2026-08-24, same session as
+  above).** User asked whether rebasing the remaining branches made
+  sense; rather than answer abstractly, actually tested it (checked
+  each branch out, ran `git rebase baseline`, recorded the result,
+  aborted on conflict) before answering. **7 of 9 rebased clean** and,
+  as a side effect, collapsed back down to a single commit each
+  (they'd accumulated now-redundant patch-id-equivalent commits — the
+  old CDDL fix, stale DEBUG-commit variants, sometimes the `alignas`
+  fix — restoring the "one file, one root cause, one commit" shape):
+  `user_namespace`, `getopt_permute`, `mkbusy_kill_race`,
+  `send_progress_race`, `lzc_send_wrapper_splice_race`,
+  `procfs_stale_read_portable`, `exec_001_pos_multicall`.
+  **2 conflicted for real**: `tzdata` and `libcap-utils` both edit the
+  same wrapped `apk add` package list in `qemu-3-deps-vm.sh` that the
+  now-merged `linux-stable-kernel` PR also touched (its
+  `linux-virt`->`linux-stable` swap reflowed the line wrapping) — a
+  cosmetic collision, not a real design conflict. User's call: combine
+  both into one new commit/branch, `claude/alpine_ci_deps`
+  (`2a466d1f4`), rather than resolve them as two separate rebases —
+  deliberate, narrow exception to the "one root cause per branch" rule
+  since they're both trivial CI-provisioning package additions
+  colliding on the same line; see the `tzdata`/`libcap-utils` entries
+  above for the cross-reference. `claude/tzdata` and
+  `claude/libcap-utils` deleted (local + `origin`) after this.
+  All 8 resulting branches (the 7 rebased + the 1 new combined one)
+  force-with-leased / pushed to `origin`. Since real `claude/<topic>`
+  fix branches are deliberately *not* covered by the `[skip ci]`
+  convention (see "CI hygiene" above — they still need real CI
+  validation eventually), these 8 pushes triggered 16 real workflow
+  runs; per the user's explicit instruction this round, all 16 were
+  cancelled immediately via `gh run cancel` (confirmed via polling
+  `gh run list` until every one showed `completed`/`cancelled` — a
+  few needed a second cancel request before GitHub's status caught
+  up). This was a deliberate choice to defer burning CI cycles on
+  this batch, not a standing policy — future pushes to these branches
+  should get real CI runs as normal unless told otherwise again.

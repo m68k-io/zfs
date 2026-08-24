@@ -618,15 +618,28 @@ config, not a shared runner limitation.
        specifically for `--json`/`--json-int` support, so `-r`
        appearing after the `all` positional gets silently reordered
        and accepted as a real flag instead of being rejected.
-       The correct, cross-platform-correct fix is a leading `+` in
-       the optstring passed to `getopt_long()` to force POSIX-strict
-       (non-permuting) parsing — glibc honors the same convention, so
-       this isn't an Alpine-only shim. **Deliberately not
-       implemented**: `cmd/zfs/zfs_main.c` is used by every `zfs`
-       subcommand, and forcing strict ordering is a genuine user-
-       facing CLI parsing *behavior change* for `zfs get` (anyone
-       currently relying on flags-after-positionals working would be
-       affected) — that's a real product-behavior decision, not a
+       **Not a musl bug** — read musl's actual source
+       (`~/Development/musl/src/misc/getopt_long.c:34`) to confirm:
+       permutation is controlled *exclusively* by the optstring's
+       leading character (`+` disables it, `-` is a different GNU
+       mode, anything else permutes), with **zero** reference to
+       `POSIXLY_CORRECT` anywhere in the file — deliberate, by
+       design, not an oversight, matching musl's general philosophy
+       of avoiding glibc's implicit environment-variable-driven
+       behavior toggles in favor of an explicit API contract. glibc
+       documents and honors the exact same `+`/`-` leading-character
+       convention alongside its own `POSIXLY_CORRECT` fallback, so
+       the portable, correct fix (a leading `+` in the optstring
+       passed to `getopt_long()`, forcing POSIX-strict parsing) isn't
+       an Alpine-specific shim — it corrects `zfs_main.c` relying on
+       a glibc-only, environment-dependent convention instead of the
+       explicit one that actually works correctly on every libc.
+       **Deliberately not implemented**:
+       `cmd/zfs/zfs_main.c` is used by every `zfs` subcommand, and
+       forcing strict ordering is a genuine user-facing CLI parsing
+       *behavior change* for `zfs get` (anyone currently relying on
+       flags-after-positionals working would be affected) — that's a
+       real product-behavior decision, not a
        test-portability fix, and deserves the user's explicit
        go-ahead rather than being bundled into a "quick checks" pass.
    - **`rsend/send-c_stream_size_estimate` — real product bug, TRUE

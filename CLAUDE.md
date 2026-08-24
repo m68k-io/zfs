@@ -597,15 +597,38 @@ config, not a shared runner limitation.
        all 5 call sites across both tests. Confirmed fixed: 3/3 passes
        after, previously 3/3 failures.
    - **Investigated, ruled out, still open**:
-     - `zfs_get_006_neg` — a negative test asserting `zfs get all -r`
-       (and 27 similar malformed invocations) must be *rejected*. Already
-       sets `export POSIXLY_CORRECT=1` before running these (upstream
-       anticipating glibc's `getopt()` permutation), so `getopt_permute`
-       was a reasonable first guess — ruled out: `zfs get all -r <pool>`
-       still wrongly succeeds even under `POSIXLY_CORRECT=1`. Real cause
-       is something deeper in `zfs_do_get()`'s argument handling in
-       `cmd/zfs/zfs_main.c` (likely how it manually scans for stray
-       dash-prefixed operands after `getopt()` finishes) — not found.
+     - `zfs_get_006_neg` — **real root cause found (2026-08-24, quick
+       triage pass), deliberately not fixed.** A negative test
+       asserting `zfs get all -r` (and 27 similar malformed
+       invocations) must be *rejected*. Confirmed with a debug-
+       instrumented build (never committed, reverted after): there is
+       **no** manual dash-prefixed-operand scan in `zfs_do_get()` at
+       all (that was a reasonable-sounding guess, but wrong) — the
+       real cause is that `getopt_long()` on musl **unconditionally
+       permutes `argv`, ignoring `POSIXLY_CORRECT` entirely**,
+       confirmed with a standalone repro against musl directly
+       (`getopt_long(argc, argv, ":d:o:s:jrt:Hp", ...)`, with and
+       without `POSIXLY_CORRECT=1` in the environment — permutes
+       either way). This is inconsistent with musl's own plain
+       `getopt()`, which does *not* permute (matches the finding
+       behind `claude/getopt_permute`, but is a genuinely different
+       mechanism — that fix was about a *test script's* argument
+       order; this is the *CLI's own* parser silently accepting
+       malformed input). `zfs_do_get()` uses `getopt_long()`
+       specifically for `--json`/`--json-int` support, so `-r`
+       appearing after the `all` positional gets silently reordered
+       and accepted as a real flag instead of being rejected.
+       The correct, cross-platform-correct fix is a leading `+` in
+       the optstring passed to `getopt_long()` to force POSIX-strict
+       (non-permuting) parsing — glibc honors the same convention, so
+       this isn't an Alpine-only shim. **Deliberately not
+       implemented**: `cmd/zfs/zfs_main.c` is used by every `zfs`
+       subcommand, and forcing strict ordering is a genuine user-
+       facing CLI parsing *behavior change* for `zfs get` (anyone
+       currently relying on flags-after-positionals working would be
+       affected) — that's a real product-behavior decision, not a
+       test-portability fix, and deserves the user's explicit
+       go-ahead rather than being bundled into a "quick checks" pass.
    - **`rsend/send-c_stream_size_estimate` — real product bug, TRUE
      root cause found (2026-08-23, second pass after the fix already
      landed — see below), and it is not a libc/musl bug at all.**
@@ -1012,8 +1035,10 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `claude/send_progress_race` (`32d09c43d`), see cluster 6 above.
   `procfs_list_stale_read` fixed by `claude/procfs_stale_read_portable`
   (`b6f387b30`) — grepped for non-portable `cat` error text, see
-  cluster 6 above. Still open, no lead: `zfs_get_006_neg` (getopt_permute
-  ruled out).
+  cluster 6 above. `zfs_get_006_neg`: real cause found (musl's
+  `getopt_long()` unconditionally permutes, ignoring
+  `POSIXLY_CORRECT`) but deliberately not fixed — see cluster 6
+  above for why.
 - Clusters 4 and 5 (the two crash clusters) are both still
   **unreproduced** despite real attempts this session (individual tests,
   full test-group batches, correct non-root user) — genuinely

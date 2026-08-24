@@ -703,6 +703,36 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 
 ## Current status / next steps
 
+- **Real CI results read back (2026-08-24)**, after all ten `claude/*`
+  branches' first CI runs finally cleared the runner backlog. Every
+  branch's *own* fix validated for real, matching what local testing
+  predicted, with two expected exceptions (each branch is
+  independently upstream-bound, so a test needing two branches
+  combined still fails on either alone — by design, not a problem):
+  `send_progress_race` (PASS), `mkbusy_kill_race` (2/2 PASS),
+  `libcap-utils` (5/5 PASS), `history_uncompress` (2/2 PASS — notably
+  *without* needing `tzdata` on real CI, unlike locally; real CI's
+  Alpine image likely already ships `tzdata`, unlike this session's
+  stripped-down local VM), `mmp` (16/17 PASS, 17th needs
+  `getopt_permute` — expected), `user_namespace` (exact predicted
+  pattern: 4 PASS + 2 SKIP), `linux-stable-kernel` (15/17 PASS).
+  `tzdata` and `getopt_permute` each FAIL alone as expected (need
+  their pair branch). `fedora44` failed on two runs with "the hosted
+  runner lost communication with the server" — transient GitHub
+  Actions infra, unrelated to any of our code.
+  - **Two new, not-yet-investigated leads surfaced**:
+    - `claude/lzc_send_wrapper_splice_race`: `rsend/send-c_stream_
+      size_estimate` still FAILs on real CI, but with a *different*
+      symptom than the corruption this session fixed —
+      `within_percent 16796160 90` got only 2 args instead of 3,
+      meaning `get_prop lrefer $send_ds` (a plain property lookup,
+      unrelated to `zfs send`/`splice()`/anything this branch
+      touches) came back empty. Not obviously a regression from this
+      fix, but unconfirmed either way.
+    - `claude/linux-stable-kernel`: `auto_replace_001_pos`/
+      `_002_pos` now actually *run* (previously SKIP, confirming
+      `scsi_debug` works) but FAIL for a reason not yet looked at —
+      progress, not a regression, but a new open item.
 - Basics are done: `baseline` builds and installs cleanly, kernel module
   loads, ZTS runs (both file-vdev and real-disk modes confirmed).
 - Six `claude/*` fix branches now exist, all locally validated (see

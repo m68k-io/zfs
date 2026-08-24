@@ -476,7 +476,12 @@ config, not a shared runner limitation.
    assertion), possibly exposed by musl's malloc behaving differently than
    glibc's. Affects at least: `block_cloning_copyfilerange`,
    `block_cloning_lwb_buffer_overflow`, `dedup_bclone`, `dedup_fdt_import`,
-   `dedup_legacy_create`, `dedup_legacy_fdt_upgrade`, likely
+   `dedup_legacy_create`, `dedup_legacy_fdt_upgrade`,
+   `block_cloning_clone_mmap_write`, `block_cloning_clone_mmap_cached`,
+   `block_cloning_copyfilerange_fallback_same_txg` (this last one found
+   2026-08-24, see below — this "at least" list has never been an
+   exhaustive pass over `failed.txt`, so treat it as a lower bound, not
+   a closed set), likely
    `gang_blocks_ddt_copies`. Still the highest-value cluster (looks like a
    real bug, not a portability issue), but **not reproduced yet
    (2026-08-23)**: manually reproduced `zdb -vvvvv <pool> -O <file>`
@@ -606,6 +611,26 @@ config, not a shared runner limitation.
      more certainty, given the stakes of getting BRT/DDT reference
      counting wrong. The `module/zfs/dbuf.c` instrumentation was
      reverted, not committed anywhere.
+   - **Third identical crash log found (2026-08-24), user asked to check
+     `block_cloning_copyfilerange_fallback_same_txg` and
+     `block_cloning_large_offset` specifically.** `block_cloning_
+     large_offset` is clean — PASS in the `_20260823` Alpine run, no
+     issue. `block_cloning_copyfilerange_fallback_same_txg` FAILed in
+     that same run (`Memory fault` in `get_same_blocks`,
+     `~/Development/logs/qemu-alpine3-24_20260823/vm1/current/output/
+     block_cloning/block_cloning_copyfilerange_fallback_same_txg/
+     stderr`) with a backtrace **byte-for-byte identical** to the two
+     `block_cloning_clone_mmap_{write,cached}` ones above, right down to
+     the same corrupted `0x7074736574007676` (`"testpool"`)
+     stack-frame artifact — a third independent confirmation of the
+     same deterministic bug, not previously added to the affected-test
+     list below (that list was written from "at least" a partial pass
+     over `failed.txt`, not an exhaustive one — worth assuming there
+     may be a few more uncatalogued instances rather than treating the
+     list as closed). Added to the list. Doesn't change the
+     already-decided outcome (still not chasing a live repro further,
+     per the 2026-08-24 "cores likely matter" write-up above) — just
+     more static evidence for the same conclusion.
    - **Aside, found while chasing this, unrelated**: two other tests in
      the same run, `block_cloning_copyfilerange_clone` and
      `_clone_partial` (not part of any previously-identified cluster —

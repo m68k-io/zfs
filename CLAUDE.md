@@ -117,13 +117,17 @@ tracks upstream `master`.
   commit(s) land upstream: the code reaches `baseline` naturally through
   the master-sync-and-rebase, not through a merge from the branch.
   `baseline` itself + `master` + Alpine/musl build fixes:
-  - `a983deb6e` — `alignas(type)` is C11; musl's `stdalign.h` exposes it
-    unconditionally (unlike glibc, which gates it behind C11), so it broke
-    the `-std=gnu99` build. Fixed with `alignas(__alignof__(uint64_t))`.
-    Still local-only (not yet upstream) — **`master` alone does not build
-    in this environment**; always build against `baseline`, never bare
-    `master`, until this lands upstream.
-  - `64740cac5` — **DEBUG**, intentionally permanent on this staging fork:
+  - `a983deb6e` (`alignas(type)` C99 build fix) landed upstream for real as
+    PR `#18971`, **merged 2026-08-24** — confirmed when rebasing `baseline`
+    onto a freshly fast-forwarded `master` (5 new commits): git recognized
+    it as patch-id-equivalent to the now-upstream `2aadd7307` and dropped
+    it automatically, same self-cleaning behavior as the CDDL fix before
+    it. `baseline` no longer carries any local-only build fix — just the
+    DEBUG commit below. `master` alone should build again in this
+    environment now that this landed; not re-verified this session, but
+    no reason it wouldn't.
+  - `64740cac5` (now `06a89ec7e` after the 2026-08-24 rebase) —
+    **DEBUG**, intentionally permanent on this staging fork:
     restricts CI to a runner subset (`alpine3-24, almalinux10, debian13,
     fedora44, freebsd15-1r, ubuntu26`) to save cycles while iterating.
     Stays here — see "This fork is a staging area" above. Message carries
@@ -135,10 +139,13 @@ tracks upstream `master`.
     upstream for real — confirmed 2026-08-23 when rebasing `baseline`
     onto a freshly-synced `master`: git recognized it as patch-id-
     equivalent to an already-upstream commit and dropped it automatically,
-    leaving only the two commits above.
-- Thirteen one-commit fix branches, each stacked directly on `baseline` and
-  each targeting one root cause. Not meant to be merged into `baseline`
-  (see above) — meant to go to upstream `openzfs/zfs` independently.
+    leaving only the two commits above (now just the one DEBUG commit,
+    per the `a983deb6e` update above).
+- **Nine one-commit fix branches remain** (originally thirteen; four
+  deleted 2026-08-24 — see "Current status" below), each stacked directly
+  on `baseline` and each targeting one root cause. Not meant to be merged
+  into `baseline` (see above) — meant to go to upstream `openzfs/zfs`
+  independently.
   **Six validated locally with real ZTS test runs as of 2026-08-23** (see
   "Local validation results" below for the actual run output);
   `claude/linux-stable-kernel` had its underlying mechanism verified but
@@ -1110,3 +1117,40 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `claude-meta` commits should carry it too going forward. Real
   `claude/<topic>` fix branches are *not* included in this convention —
   those still need real CI validation.
+- **First PR batch resolved, fork synced and cleaned up (2026-08-24).**
+  Checked all four first-batch PRs via `gh pr view --json state,mergedAt`
+  (not just local patch-id matching): `#18979` (mmp), `#18980`
+  (linux-stable-kernel), and `#18981` (history_uncompress) all **MERGED**;
+  `#18983` (get_prop_empty_value) **CLOSED**, not merged, as already
+  planned (see above — no confirmed real trigger for that fix). `origin`'s
+  `master` had already picked up the merges via GitHub's fork-sync (no
+  separate `upstream` remote configured — `git fetch`/`pull` against
+  `origin` was sufficient); fast-forwarded local `master` 5 commits to
+  `bd474db2f`, then rebased `baseline` onto it (see the `baseline` bullet
+  above — the `alignas` fix dropped out the same way the CDDL fix did),
+  and force-with-leased the result to `origin/baseline`
+  (`64740cac5` -> `06a89ec7e`). Checked Actions afterwards per the DEBUG
+  commit's `[skip ci]` line: confirmed no new runs were triggered by the
+  push (most recent run predated it by ~9 minutes), and branch
+  deletion doesn't trigger any workflow here (`grep`-confirmed no
+  `on: delete` triggers) — nothing needed cleaning up.
+  Deleted six branches, local + remote where they existed on `origin`:
+  `claude/mmp`, `claude/linux-stable-kernel`, `claude/history_uncompress`
+  (merged), `claude/get_prop_empty_value` (closed/withdrawn),
+  `combined-review` (a stacked-all-13-fixes validation branch, not part
+  of the 13/14-branch inventory documented in this file, superseded now
+  that the individual branches are the real PR sources — **was** on
+  `origin` too, caught and deleted after an initial miss, see below),
+  and `repro-test` (local-only throwaway repro branch for the
+  `get_prop`/send-corruption investigation, already resolved). **Note
+  for next time**: `git branch -vv` only lists tracking info for
+  branches with an explicit upstream configured in `.git/config` — it
+  is *not* a reliable way to check whether a branch exists on `origin`.
+  Use `gh api repos/<repo>/branches` (or `git ls-remote origin`) instead;
+  this session initially misjudged `combined-review` as local-only on
+  that basis, then had to catch and delete it from `origin` separately
+  after `git branch -a` (post-fetch) surfaced it.
+  Nine `claude/<topic>` fix branches now remain, all still unsubmitted —
+  per "Repo layout" above, this first batch resolving is the trigger
+  condition for the user to submit those nine personally; not yet
+  requested, so not started unprompted.

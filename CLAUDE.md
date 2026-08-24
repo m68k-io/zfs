@@ -500,7 +500,26 @@ config, not a shared runner limitation.
    two different call sites in `spa_unload()`, not a different bug).
    This resolves the open question `ddt.c`'s writeup below raised about
    whether `ddt.c`'s use of the same `dnode_hold()`/`dnode_rele()`
-   pairing pattern as `brt.c` was actually unsafe too: it is. Still the
+   pairing pattern as `brt.c` was actually unsafe too: it is.
+   **Two more confirmed instances (2026-08-24), from a different real
+   run** (the long-stuck `combined-review` `zfs-qemu` job finally
+   completed after 3h33m — run `32758399185`, job `97531384792` — this
+   is the fully-combined branch with essentially every other known fix
+   already applied, so its unexpected-FAIL list is an unusually clean
+   signal): `alloc_class_013_pos` ("removing a dedup device from a pool
+   succeeds", crashes via `zdb -bbcc`) and `block_cloning_replay` — both
+   show the identical `dbuf_destroy+0x24b` -> `dbuf_destroy+0x42d` chain.
+   Added both to the affected list above. With nearly every other known
+   issue already fixed in that branch, this run's entire unexpected-FAIL
+   list (16 tests) reduces almost completely to just cluster 4 (7 of
+   the 16: the two new ones here plus `dedup_bclone`, `dedup_fdt_create`,
+   `dedup_legacy_fdt_mixed`, `dedup_legacy_fdt_upgrade`, `dedup_prune` —
+   note `dedup_fdt_create` and `dedup_legacy_fdt_upgrade` are newly
+   caught here too, added above) and cluster 5 (9 of the 16, see below)
+   — plus the one already-known, deliberately-unfixed `zfs_get_006_neg`.
+   That's about as clean a confirmation as this project is likely to
+   get that these two clusters are the real remaining Alpine-specific
+   gap, not noise from something still unfixed elsewhere. Still the
    highest-value cluster (looks like a
    real bug, not a portability issue), but **not reproduced yet
    (2026-08-23)**: manually reproduced `zdb -vvvvv <pool> -O <file>`
@@ -774,6 +793,37 @@ config, not a shared runner limitation.
      crash (same `0x20944` offset), on `zpool_add_001_neg` and a
      `zpool_create_00*` test — cluster 5's scope is broader than just
      the `-c` script tests.
+   - **Confirmed and generalized further (2026-08-24, same
+     `combined-review` run as cluster 4's update above), and the
+     comm-truncation theory got corrected.** `zpool_add_001_neg` and
+     `zpool_create_001_neg` (identified exactly by name this time, not
+     truncated) both show the identical `0x20944` offset crash — same
+     bug, confirmed exact test names. These are about as minimal as a
+     ZTS test gets: `misc.cfg`-only setup, `set -A args ...` then a
+     plain `while` loop of `log_mustnot zpool <args>`, no custom
+     scripts, no `-c` anything. **Correction to the earlier "ksh crashes
+     during its own exit/cleanup" framing**: the log shows only 2 of
+     the ~10 loop iterations completing (`SUCCESS: zpool add exited 2`,
+     `SUCCESS: zpool add -f exited 2`) before the crash — it dies
+     *mid-loop*, on the 3rd call or so, not during script teardown.
+     The "crashes right when the test should finish" read came from
+     the earlier `-c` tests' logs looking like they'd completed
+     (multiple `SUCCESS` lines before the crash line), which was an
+     inference from incomplete evidence, not a confirmed mechanism —
+     this new data shows a much earlier crash point instead, so "which
+     exact point in a script this fires at" is still open, not settled
+     as "always at exit." `zfs_list_003_pos` and `zfs_list_007_pos`
+     failed in this same run too, with the same silent-early-
+     termination shape (no `ERROR`, no `ASSERTION` failure, just stops
+     after 2-3 `SUCCESS` lines) — very likely more instances, though no
+     explicit segfault line was visible in the captured log snippet for
+     these two specifically, so treat as probable, not fully confirmed.
+     **`zpool_add_001_neg` retried locally, 100 more times** (real
+     `ksh -p` on the actual file, as user `zfs`, real `$TESTPOOL`) —
+     zero crashes, bringing this session's cumulative local-repro count
+     for cluster 5 to 350+ attempts across every angle tried
+     (isolated, contended, parallel, and now the simplest-possible
+     failing test), still without a single local reproduction.
 6. **Cluster 6 triage, 2026-08-23** — went through the full original
    list. Methodology note that applies to all of this: local `-t <path>`
    runs default to root; several `cli_user/*` tests need `-u zfs`

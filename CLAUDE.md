@@ -70,6 +70,24 @@ tracks upstream `master`.
   identity is configured repo-wide — set it explicitly per commit (e.g.
   `git -c user.name=... -c user.email=... commit ...`) so the two never
   get mixed up by accident.
+- **Never put PR numbers or upstream commit SHAs in `claude-meta`
+  commit messages (2026-08-24).** GitHub cross-references a PR's
+  timeline from a bare `#NNNN`/`owner/repo#NNNN` mention (or a SHA
+  that happens to match that PR's head commit) in *any* commit
+  message it can see, including ones pushed to an unrelated branch on
+  a fork — which is exactly what `claude-meta` is relative to
+  `openzfs/zfs`'s real PRs. The user does not want this fork's
+  meta/notes branch showing up in those PRs' histories. Caught once
+  (commit rewritten via detached-HEAD cherry-pick + `git branch -f`
+  + `--force-with-lease`, since it wasn't the tip) — but the GitHub
+  cross-reference it had already created stayed even after the
+  rewrite; force-pushing over history does **not** retroactively
+  clear an already-indexed PR timeline entry, so get this right the
+  first time rather than relying on being able to fix it after.
+  Confirmed scope with the user: referencing a PR/commit in
+  CLAUDE.md's own prose is fine (rendering `#NNNN` in a file GitHub
+  displays doesn't create that same cross-reference) — the rule is
+  specifically about commit message text.
 - **This fork (`m68k-io/zfs`) is a staging area, not the final upstream
   source.** The real repo is `https://github.com/alex-moch` (a separate
   account), where the user does final QA on cherry-picked real-fix
@@ -412,16 +430,68 @@ config, not a shared runner limitation.
      either genuine timing (a concurrent eviction thread winning a
      narrow race) or accumulated whole-suite state neither this nor
      the previous session's 54-test group run could trigger.
-     **Recommendation**: this is now well past "black box, no lead" —
-     it's a plausible, specific, well-evidenced race in BRT/DDT's
-     pool-teardown dnode release path, but pinning the exact trigger
-     needs either an actual live crash to attach a debugger to (still
-     waiting on a core dump) or checking what concurrent activity
-     (ARC eviction, async destroy, etc.) can run during
-     `spa_unload()`'s window between `dsl_pool_close()` and
-     `brt_unload()`/`ddt_unload()` — not attempted yet, and not
-     something to guess a kernel-level fix for without more certainty
-     given the stakes of getting BRT/DDT reference counting wrong.
+     **Follow-up: confirmed the eviction thread is real and active,
+     still no crash, user decided to stop here (2026-08-24).** Added
+     throwaway instrumentation to `module/zfs/dbuf.c` (never
+     committed — `fprintf(stderr, "CLDBG ...")` + `fflush()` at the
+     top of `dbuf_destroy()`, in `dbuf_evict_one()`, and right before
+     the `mutex_exit()` in `dbuf_rele_and_unlock()`'s bonus-buffer
+     branch, plus a deliberate `delay()` after that `mutex_exit()`
+     and inside `dbuf_evict_one()` to widen the exact window
+     `dnode.c`'s own comment warns about — standard technique for
+     forcing a rare race open). Note: `fprintf`/`stderr` aren't
+     kernel-safe, so this instrumentation only builds for the
+     userspace `libzpool`/`zdb` target, not the actual kernel module
+     — fine for this investigation since `zdb -O` runs the identical
+     C code from `libzpool.so` entirely in userspace, no kernel
+     module needed. Confirmed real: `dbuf_cache_max_bytes` is
+     `UINT64_MAX` by default, so the small test pools used for
+     reproduction never grew the dbuf cache enough to trigger
+     eviction at all (zero `dbuf_evict_one` calls in early attempts)
+     — forcing it tiny via `zdb -o dbuf_cache_max_bytes=1024` made
+     the eviction thread engage for real, confirmed via trace: a
+     second, distinct thread ID actively calling `dbuf_evict_one()`,
+     with observed memory-address reuse across different objects in
+     rapid succession (real allocator churn, not simulated). Despite
+     this, and despite widening the artificial delay from 20ms to
+     200ms at both race points: still zero crashes.
+     **Cores likely matter, in the opposite direction from usual
+     intuition**: this VM has 16 dedicated, mostly-idle cores, so the
+     two relevant threads (main + evict) rarely get preempted
+     mid-critical-section. Real CI runners have far fewer cores
+     (GitHub's standard runners: 2-4) and — per the `get_prop`/
+     `lrefer` investigation above — run *two* parallel test-runner
+     workers sharing that small core count simultaneously, meaning
+     genuinely heavier scheduler contention than anything reproduced
+     here. Pinning to 2 cores (`taskset -c 0,1`) plus 4 busy-loop
+     processes pinned to the same 2 cores (to approximate that
+     contention) still didn't trigger it in the time available —
+     though the busy-loops only covered part of that particular run
+     (a background-job-survival mistake mid-session — `nohup ... &
+     disown` died along with the rest of its shell when a *different*
+     foreground command in the same tool call hit its timeout and got
+     SIGTERM'd; relaunched and verified with `pgrep`/`mpstat` before
+     trusting it the second time).
+     **Cumulative total: ~185 local reproduction attempts across four
+     different strategies this session (plain repeated runs, forced
+     eviction pressure via the tunable, artificial delays at the race
+     points, 2-core pinning + background contention) — zero
+     crashes.** Given that, and the strength of the static-analysis
+     evidence already in hand (two byte-identical real backtraces,
+     the corrupted-stack-frame confirmation, the precise mechanism
+     traced through `brt.c`/`dnode.c`/`dbuf.c`/`spa.c`), the user
+     decided to stop chasing a live local reproduction and treat this
+     as write-up-complete rather than open. **Next step, if ever
+     revisited, is not more local iteration**: it's either (a) an
+     actual crash with a live debugger attached (still waiting on a
+     core dump from a real CI or local run), or (b) filing this
+     upstream with OpenZFS's dbuf/ARC/BRT maintainers, who have far
+     more context on which cross-thread interactions in this area are
+     actually safe than can be reconstructed from source reading
+     alone. **Not** something to guess a kernel-level fix for without
+     more certainty, given the stakes of getting BRT/DDT reference
+     counting wrong. The `module/zfs/dbuf.c` instrumentation was
+     reverted, not committed anywhere.
    - **Aside, found while chasing this, unrelated**: two other tests in
      the same run, `block_cloning_copyfilerange_clone` and
      `_clone_partial` (not part of any previously-identified cluster —

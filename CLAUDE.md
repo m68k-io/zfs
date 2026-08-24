@@ -360,6 +360,68 @@ config, not a shared runner limitation.
    way. Enabled core dumps this session (`core_pattern` ->
    `/var/tmp/core.%e.%p`, `ulimit -c unlimited`) in case it fires next
    time; no core produced yet.
+   - **Real progress (2026-08-24, user asked to "go ahead with
+     cluster 4"), still not reproduced, but no longer a black box.**
+     Found two REAL, detailed crash logs already sitting locally
+     (`~/Development/logs/qemu-alpine3-24_20260823/vm1/current/
+     output/block_cloning/block_cloning_clone_mmap_{write,cached}/
+     stderr`) that hadn't been fully read before — the previous
+     session's "not reproduced" attempts targeted
+     `block_cloning_copyfilerange`/`dedup_bclone`, not these two.
+     Both backtraces are **byte-for-byte identical**
+     (`dbuf_destroy+0x24b` → `dbuf_destroy+0x42d` →
+     `brt_vdevs_free+0x130` → `brt_unload+0x2c` → `spa_unload+0x1d5`
+     → `spa_evict_all+0x6f` → `spa_fini+0x09` → `kernel_fini+0x0e` →
+     `main+0xb10`, across two separate test runs, separate processes)
+     — that rules out "random heap corruption manifesting
+     differently each time" and points at a genuine, deterministic
+     logic/ordering bug instead. `dbuf_destroy` appears twice
+     (recursively): `brt_vdevs_free()`'s `dnode_rele(brtvd->
+     bv_mos_entries_dnode, brtvd)` (`module/zfs/brt.c:851`) → the
+     dnode's hold count hits zero → `dnode_rele_and_unlock()` releases
+     the dnode's parent dbuf → that recursively triggers a *second*
+     `dbuf_destroy()`, which is where it actually crashes. Also
+     decoded the corrupted trailing stack frame
+     (`0x7074736574007676`) as the ASCII bytes `"vv\0testp"` — i.e.
+     the literal string `"testpool"` (this project's default
+     `$TESTPOOL` name) sitting where a return address should be,
+     confirming real stack/heap corruption, not just a bad unwind.
+     `dnode.c`'s own comment on `dnode_rele_and_unlock()` documents
+     this *exact* hazard class ("releasing the last hold could result
+     in the dnode's parent dbuf evicting its dnode handles ... must
+     first drop the dnode handle") — but `ddt.c` uses the identical
+     `dnode_hold()`/`dnode_rele()` pairing pattern in three places
+     without (apparently) crashing anywhere near as often, so this
+     isn't simply "this API pairing is unsafe" in general (it's used
+     safely all over ZFS). Checked `spa_unload()`
+     (`module/zfs/spa.c:2411-2418`): `dsl_pool_close()` runs — which
+     sets `spa->spa_meta_objset = NULL` — *before* `ddt_unload()`/
+     `brt_unload()` release their still-outstanding dnode holds into
+     that objset. Normally safe (an outstanding hold should keep the
+     dnode pinned regardless), so the working theory is a **rare race
+     between BRT/DDT's held-dnode teardown and something else
+     touching the same dbuf around the same time** (a background ARC/
+     dbuf-cache eviction thread being the most likely suspect, not
+     yet checked) — not a trivial one-line bug.
+     **Still not locally reproduced**: 115+ further iterations this
+     session alone (20 individual `block_cloning_clone_mmap_write`
+     repros with the exact `$TESTPOOL`/`$TESTFS` names matching the
+     decoded corrupted string, then 80 more in a tight loop reusing
+     the pool across iterations) — zero crashes. Confirms it needs
+     something beyond "run this one test enough times" — likely
+     either genuine timing (a concurrent eviction thread winning a
+     narrow race) or accumulated whole-suite state neither this nor
+     the previous session's 54-test group run could trigger.
+     **Recommendation**: this is now well past "black box, no lead" —
+     it's a plausible, specific, well-evidenced race in BRT/DDT's
+     pool-teardown dnode release path, but pinning the exact trigger
+     needs either an actual live crash to attach a debugger to (still
+     waiting on a core dump) or checking what concurrent activity
+     (ARC eviction, async destroy, etc.) can run during
+     `spa_unload()`'s window between `dsl_pool_close()` and
+     `brt_unload()`/`ddt_unload()` — not attempted yet, and not
+     something to guess a kernel-level fix for without more certainty
+     given the stakes of getting BRT/DDT reference counting wrong.
    - **Aside, found while chasing this, unrelated**: two other tests in
      the same run, `block_cloning_copyfilerange_clone` and
      `_clone_partial` (not part of any previously-identified cluster —

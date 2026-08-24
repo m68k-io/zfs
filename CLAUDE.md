@@ -478,11 +478,30 @@ config, not a shared runner limitation.
    `block_cloning_lwb_buffer_overflow`, `dedup_bclone`, `dedup_fdt_import`,
    `dedup_legacy_create`, `dedup_legacy_fdt_upgrade`,
    `block_cloning_clone_mmap_write`, `block_cloning_clone_mmap_cached`,
-   `block_cloning_copyfilerange_fallback_same_txg` (this last one found
-   2026-08-24, see below — this "at least" list has never been an
-   exhaustive pass over `failed.txt`, so treat it as a lower bound, not
-   a closed set), likely
-   `gang_blocks_ddt_copies`. Still the highest-value cluster (looks like a
+   `block_cloning_copyfilerange_fallback_same_txg`,
+   `block_cloning_ficlone`, `block_cloning_fideduperange_compress`,
+   `dedup_fdt_pacing`, `dedup_legacy_fdt_mixed`, `dedup_legacy_gang`,
+   `dedup_prune` (all found 2026-08-24 in the `fix/history-uncompress-
+   alpine` branch's real CI job, run `32638440188`/job `97191643086` —
+   this "at least" list has never been an exhaustive pass over
+   `failed.txt`, so treat it as a lower bound, not a closed set), likely
+   `gang_blocks_ddt_copies`. **Confirmed both BRT and DDT teardown hit
+   the identical bug, not just BRT** (2026-08-24, user asked whether the
+   dedup failures in that job were "the related zdb crash" — checked
+   every one): all six dedup failures above show the byte-identical
+   chain `dbuf_destroy+0x24b` -> `dbuf_destroy+0x42d` ->
+   **`ddt_table_free+0xfc` -> `ddt_unload+0x2d`** -> `spa_unload+0x1cd`
+   -> `spa_evict_all+0x6f` -> `spa_fini+0x09` -> `kernel_fini+0x0e` ->
+   `main+0xb10` — identical offsets across all six, and identical to the
+   BRT-side chain below except for the `ddt_table_free`/`ddt_unload`
+   swap-in for `brt_vdevs_free`/`brt_unload` (note: `spa_unload`'s own
+   offset differs slightly, `+0x1cd` for the DDT path vs `+0x1d5` for
+   the BRT path — consistent with it being the same crash reached via
+   two different call sites in `spa_unload()`, not a different bug).
+   This resolves the open question `ddt.c`'s writeup below raised about
+   whether `ddt.c`'s use of the same `dnode_hold()`/`dnode_rele()`
+   pairing pattern as `brt.c` was actually unsafe too: it is. Still the
+   highest-value cluster (looks like a
    real bug, not a portability issue), but **not reproduced yet
    (2026-08-23)**: manually reproduced `zdb -vvvvv <pool> -O <file>`
    (the exact command `get_same_blocks` in `libtest.shlib` runs) standalone
@@ -715,6 +734,46 @@ config, not a shared runner limitation.
      revisited: get the real harness running this specific test (fix or
      route around the path-resolution issue) rather than continue
      hand-replicating the commands.
+   - **Follow-up (2026-08-24, same day): closed the harness gap above,
+     still not reproduced.** User pushed back on treating the `-t`
+     harness quirk as a dead end. Fixed the actual repro method: this
+     session's manual attempts had been run through `sh -c`, not `ksh
+     -p`, on the theory that `ksh93` itself (not `zpool`) is the likely
+     crash site — an oversight, since that never actually exercised
+     ksh93 at all. Re-ran ~150 attempts through real `ksh -p` on the
+     literal `.ksh` files (isolated, a CPU-contended variant via
+     `taskset` + background `yes` loops, and 15 batches of 6-way
+     parallel execution) — still zero crashes. **Ruled out a build/
+     version mismatch definitively**: this VM's `ksh --version` and the
+     real CI job's build log both show the exact same string,
+     `93u+m/1.1.0-alpha+48940aaa 2026-08-16` — identical commit,
+     identical build timestamp; the user also confirmed they'd
+     literally copy-pasted `qemu-3-deps-vm.sh`'s own ksh93-from-source
+     recipe when provisioning this VM. **Found and fixed a real gap in
+     the harness invocation itself**: `test-runner.py`'s `TestGroup`
+     falls back to `logname` (whoever invoked the process) when a
+     runfile section's `user =` is blank — and `zpool_iostat`/
+     `zpool_status`'s sections in `common.run` do leave it blank. So
+     real CI's `(run as zfs)` label means the *entire* `test-runner.py`
+     process was launched as `zfs`, not that this one test overrides
+     its user — this session had only ever wrapped individual `ksh`
+     invocations in `sudo -u zfs`, never run the harness process itself
+     that way. Got a minimal custom runfile working end-to-end as user
+     `zfs` (`zfs-tests.sh -r <path>`, `-c` in that script means
+     something unrelated to `test-runner.py`'s own `-c` — costed one
+     wrong turn) — `zpool_status`'s 4 tests all passed once a real
+     `$TESTPOOL` existed. `zpool_iostat`'s tests hit a *different*,
+     unexplained snag: the `media` script exits 1 only when invoked
+     through the harness, despite an identical manual `zpool iostat -c
+     media testpool` succeeding moments later by hand — a real,
+     reproducible discrepancy between harness and manual invocation,
+     just not yet the segfault itself. Not chased further this round.
+     **Bonus finding while reading the raw job log directly** (`run
+     32638440188`, job `97191643086`, `fix/history-uncompress-alpine`
+     branch): two more instances of this exact same deterministic
+     crash (same `0x20944` offset), on `zpool_add_001_neg` and a
+     `zpool_create_00*` test — cluster 5's scope is broader than just
+     the `-c` script tests.
 6. **Cluster 6 triage, 2026-08-23** — went through the full original
    list. Methodology note that applies to all of this: local `-t <path>`
    runs default to root; several `cli_user/*` tests need `-u zfs`

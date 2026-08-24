@@ -118,7 +118,7 @@ tracks upstream `master`.
     onto a freshly-synced `master`: git recognized it as patch-id-
     equivalent to an already-upstream commit and dropped it automatically,
     leaving only the two commits above.
-- Ten one-commit fix branches, each stacked directly on `baseline` and
+- Eleven one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
   **Six validated locally with real ZTS test runs as of 2026-08-23** (see
@@ -221,8 +221,20 @@ tracks upstream `master`.
     (40/40 + 20/20 + a real send/receive round trip, all using the
     *original* unfixed `libzfs_sendrecv.c` to prove this fix alone is
     sufficient).
+  - `claude/get_prop_empty_value` (`f9d7d9aae`, new 2026-08-24,
+    found while digging into the `lzc_send_wrapper_splice_race` CI
+    lead — see "Current status" above for the full story) —
+    `get_prop()`/`get_pool_prop()`/`get_vdev_prop()` in
+    `libtest.shlib` checked exit status but not whether the command
+    actually printed a value, so a rare empty-output hiccup from
+    `zfs get`/`zpool get` (real cause still unknown, not reproduced
+    locally) surfaced as a confusing, misattributed `bc`/`[` crash
+    several steps later instead of a clear failure. Now `log_fail`s
+    immediately with a specific message when output is empty — used
+    by nearly every test in the suite, not just the one that
+    surfaced it.
 
-  Next for these ten: the user submits them upstream independently
+  Next for these eleven: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -739,19 +751,59 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   their pair branch). `fedora44` failed on two runs with "the hosted
   runner lost communication with the server" — transient GitHub
   Actions infra, unrelated to any of our code.
-  - **Two new, not-yet-investigated leads surfaced**:
-    - `claude/lzc_send_wrapper_splice_race`: `rsend/send-c_stream_
-      size_estimate` still FAILs on real CI, but with a *different*
-      symptom than the corruption this session fixed —
-      `within_percent 16796160 90` got only 2 args instead of 3,
-      meaning `get_prop lrefer $send_ds` (a plain property lookup,
-      unrelated to `zfs send`/`splice()`/anything this branch
-      touches) came back empty. Not obviously a regression from this
-      fix, but unconfirmed either way.
-    - `claude/linux-stable-kernel`: `auto_replace_001_pos`/
-      `_002_pos` now actually *run* (previously SKIP, confirming
-      `scsi_debug` works) but FAIL for a reason not yet looked at —
-      progress, not a regression, but a new open item.
+  - **Both leads resolved (2026-08-24)**:
+    - `claude/linux-stable-kernel`'s `auto_replace_001/002_pos`:
+      non-issue — both already listed in ZTS's own "Tests with
+      results other than PASS that are expected" summary, tracked
+      against pre-existing upstream issues (`openzfs/zfs#14851` and
+      "Known issue"), unrelated to this branch.
+    - `claude/lzc_send_wrapper_splice_race`'s `get_prop lrefer`
+      empty-output failure: **confirmed NOT caused by that branch**
+      — checked every other CI run available (`mmp`, `tzdata`,
+      `user_namespace`, `libcap-utils`, `getopt_permute`,
+      `history_uncompress`, `mkbusy_kill_race` — none touch send
+      code at all) and every one hits the *identical* failure, same
+      timing (~30-40ms after the snapshot), same signature. It's a
+      pre-existing flake present on `baseline` regardless of branch.
+      Traced the mechanism precisely: `within_percent()` in
+      `math.shlib` is called unquoted
+      (`within_percent $ds_size $ds_lrefer 90`); when `get_prop
+      lrefer $send_ds` returns truly empty output, the empty
+      unquoted argument vanishes from the call, shifting `90` into
+      the `$2` slot and leaving `percent` unset — that's what
+      produces the `bc: bad expression`/`[: argument expected`
+      errors. Tried hard to reproduce the underlying empty-output
+      cause locally (400+ iterations, including under heavy
+      artificial CPU/memory/I/O stress via 16 busy-loops + 4
+      concurrent `dd oflag=direct` writers + a 24 GiB memory hog) —
+      never reproduced it. Found the likely reason why: the CI log's
+      `zfs_dbgmsg` dump at the failure moment shows genuine
+      *concurrent, unrelated* pool activity (`testpool3`, mid `zfs
+      recv`) on a different kernel thread at the same wall-clock
+      second — `vm1`/`vm2` in the CI logs aren't two separate
+      machines, they're two parallel `test-runner.py` processes
+      (different `-T` test-group lists) sharing one kernel on one
+      VM, which is a form of contention a single-stream local repro
+      can't produce. Root kernel-level cause (why `zfs get -Hpo
+      value` returns literally empty rather than a stale value under
+      that contention) still unknown — would need instrumentation
+      inside the actual CI runner to pin down further.
+      - **Fixed what *was* fixable**: `get_prop()`/`get_pool_prop()`/
+        `get_vdev_prop()` in `libtest.shlib` checked exit status but
+        never validated the command actually printed a value, so
+        this class of failure always surfaces several steps removed
+        from the real cause (a `bc` crash instead of "get_prop
+        returned empty"). New branch `claude/get_prop_empty_value`
+        (`f9d7d9aae`) makes all three `log_fail` immediately with a
+        specific message when output is empty. Doesn't fix or
+        explain the underlying rare `zfs get` hiccup — makes it
+        diagnosable instead of confusing, for every test that uses
+        these (very widely used) helpers, not just this one.
+        Verified with a standalone ksh harness (real `zfs get` on the
+        success path; a stubbed empty-output `zfs get` on the
+        failure path) since the formal ZTS test-runner has an
+        unrelated local permission issue (see below) that wasn't
+        worth fighting again for a pure-shell-logic change.
 - Basics are done: `baseline` builds and installs cleanly, kernel module
   loads, ZTS runs (both file-vdev and real-disk modes confirmed).
 - Six `claude/*` fix branches now exist, all locally validated (see
@@ -793,10 +845,11 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `origin`. `claude/mmp` and `claude/tzdata` each needed
   `--force-with-lease` once, after being amended locally post-push
   (blank-line cleanup; commit-message line length for `checkstyle`'s
-  `commitcheck`, respectively). `claude/send_progress_race` and
-  `claude/lzc_send_wrapper_splice_race` are both pushed too, bringing
-  the total to thirteen branches (`baseline`, `master`, `claude-meta`,
-  eight original fix branches, and these two).
+  `commitcheck`, respectively). `claude/send_progress_race`,
+  `claude/lzc_send_wrapper_splice_race`, and
+  `claude/get_prop_empty_value` are all pushed too, bringing the
+  total to fourteen branches (`baseline`, `master`, `claude-meta`,
+  eight original fix branches, and these three).
 - **CI hygiene (2026-08-23)**: cleaned up 15 stale cancelled runs and 7
   redundant successful `checkstyle` runs from the Actions history via
   `gh run delete`. Separately, synced with upstream: fetched, fast-

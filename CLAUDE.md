@@ -230,12 +230,51 @@ tracks upstream `master`.
   - `claude/mkbusy_kill_race` (`9036c2fe9`, new 2026-08-23, cluster 6) —
     `mkbusy` daemonizes and gets reparented to init; `zfs_destroy_001_
     pos`/`_005_neg` killed it and immediately checked `pgrep -fl mkbusy`
-    with zero delay, racing init's reaping of the dead child. Confirmed
-    a generic timing race (reproduced standalone with no ZFS involved),
-    not Alpine/musl-specific — just loses the race more often here.
-    Added `kill_mkbusy()` (kill + poll up to 5s) to `zfs_destroy_
+    with zero delay, racing init's reaping of the dead child. Added
+    `kill_mkbusy()` (kill + poll up to 5s) to `zfs_destroy_
     common.kshlib`, fixed all 5 call sites. Confirmed fixed: 3/3 passes
     after, previously 3/3 failures.
+    **The original "not Alpine/musl-specific" claim was underargued
+    (2026-08-24 correction, prompted by the user asking why the same
+    thing would work on glibc)**: the cited "isolated repro" that
+    supposedly ruled this out never left this same Alpine/musl
+    machine, so it only ruled out *ZFS*-specific, not
+    *platform*-specific — a real gap, not just an omission. Went back
+    and actually checked the mechanism: `mkbusy.c`'s child does no
+    work at all after `daemonize()` (just `pause()`), so nothing
+    CPU-bound or I/O-bound delays signal handling. Reproduced the
+    no-ZFS race directly (100 `mkbusy`-against-`/tmp`-file
+    spawn/kill/`pgrep` cycles): 99/100 hits. Crucially, a cheaper O(1)
+    check (`cat /proc/$pid/stat`, direct lookup by pid) missed the
+    zombie *every* time — already reaped — while `pgrep -f` (a full
+    linear `/proc` scan, opening every process's `cmdline` to
+    pattern-match) reliably still caught it. So the real mechanism is:
+    the race outcome is decided by whether the *checking command's own
+    cost* exceeds the reap latency, not by "how promptly the local
+    init reaps." That part genuinely does generalize: `kill(2)` being
+    asynchronous (returning before the target has necessarily died or
+    been reaped) is POSIX-guaranteed on any Unix, and Alpine's `pgrep`
+    is confirmed (`apk info --who-owns`) to be `procps-ng` 4.0.6 — the
+    same upstream tool used as `pgrep` on Ubuntu/Fedora/Debian, not an
+    Alpine-only implementation, so its /proc-scan cost profile isn't
+    Alpine-specific either. If anything, systemd (the subreaper on
+    most glibc CI legs) does more per-`SIGCHLD` bookkeeping than
+    Alpine's minimal init, which would widen this race there, not
+    close it. **Where the generalization is genuinely uncertain**:
+    `zfs_destroy_005_neg.ksh`'s `pgrep -fl mkbusy` checks run
+    unconditionally on every platform including FreeBSD, whose `pgrep`
+    is a different implementation (BSD's own, via `sysctl`/`kvm`, not
+    `procps-ng`) — only the weaker "kill is async, zombies need
+    reaping" part of the argument extends there, not the "identical
+    tool, identical scan cost" part. The one pre-fix cross-platform CI
+    run already on record above showed zero unexpected failures on
+    this test across the 5 non-Alpine legs, which is thin evidence
+    either way given ZTS's known flakiness — not proof it can't fire
+    elsewhere, but not confirmation it's equally frequent there
+    either. None of this changes whether the fix (poll instead of a
+    single check) is correct — it is, regardless of the exact
+    mechanism — only how confidently "not platform-specific" can be
+    stated in the PR description.
   - `claude/send_progress_race` (`32d09c43d`, new 2026-08-23, cluster 6,
     real product bug not a test-script issue) — `zfs send -nP` output
     corruption in `lib/libzfs/libzfs_sendrecv.c`; see the full diagnosis

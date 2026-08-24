@@ -715,25 +715,42 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 
 ## Current status / next steps
 
-- **First three upstream PRs submitted (2026-08-24)**: asked for a
-  recommended submission order (product-code fixes first,
-  `linux-stable-kernel` last) — user explicitly disagreed and chose
-  `linux-stable-kernel`, `mmp`, and `history_uncompress` first
-  instead. Helped fill out all three PR description templates
-  (Motivation/Description/How Tested), correcting/expanding the
-  testing sections along the way: confirmed `mmp` clean across the
-  *whole* CI matrix, not just Alpine (glibc distros too — initially
-  only checked Alpine, corrected after the user pushed back); found
-  that the `auto_replace_001/002_pos` "new lead" flagged the day
-  before is a non-issue — ZTS's own results summary already lists
-  both as pre-existing, tracked-upstream expected failures
-  (`openzfs/zfs#14851` and "Known issue"), unrelated to the
-  `linux-stable-kernel` change. **User has now pushed all three PRs**
-  via the separate `alex-moch` account and is waiting for them to
-  merge before doing anything further — next step when they come
-  back: sync this fork's `master` from upstream and rebase `baseline`
-  onto it, per the established flow. Remaining seven branches'
-  submission order not yet decided.
+- **First batch of upstream PRs submitted, waiting on merge
+  (2026-08-24)**: asked for a recommended submission order
+  (product-code fixes first, `linux-stable-kernel` last) — user
+  explicitly disagreed and chose `linux-stable-kernel`, `mmp`, and
+  `history_uncompress` first instead. Helped fill out PR description
+  templates (Motivation/Description/How Tested) for all four —
+  `get_prop_empty_value` (branch/PR title later changed to "fail on
+  missing output" after the user refined the fix with a sentinel to
+  correctly distinguish "printed nothing" from "printed an
+  legitimately-empty value" — see cluster 6 above) got added to the
+  batch too. Correcting/expanding testing sections along the way:
+  confirmed `mmp` clean across the *whole* CI matrix, not just Alpine
+  (glibc distros too — initially only checked Alpine, corrected after
+  the user pushed back); found that the `auto_replace_001/002_pos`
+  "new lead" flagged the day before is a non-issue — ZTS's own
+  results summary already lists both as pre-existing, tracked-
+  upstream expected failures (`openzfs/zfs#14851` and "Known issue"),
+  unrelated to the `linux-stable-kernel` change; confirmed
+  `get_prop_empty_value` (PR `openzfs/zfs#18983`) essentially clean
+  across upstream's full ~19-distro CI matrix, one unrelated
+  `zpool_trim_multiple` flake aside.
+  **All four PRs are now open upstream**
+  (`openzfs/zfs#18979` mmp, `#18980` linux-stable-kernel, `#18981`
+  history_uncompress, `#18983` get_prop_empty_value) — none merged
+  yet. **User is deliberately waiting for this first batch to merge
+  before submitting the remaining seven branches themselves** (not
+  asking for help with that submission round) — nothing for this
+  fork to do until they come back, at which point the next step is:
+  sync this fork's `master` from upstream and rebase `baseline` onto
+  it, per the established flow. Also noticed in passing:
+  `openzfs/zfs#18971` (the `alignas(type)`/C99 build fix matching
+  `baseline`'s local-only commit) is open too, and `#18972` (the
+  CDDL-boilerplate fix) is already merged — confirming what the
+  `baseline` rebase auto-detected as already-upstream a few days
+  ago. Remaining seven branches: user will submit them personally
+  once the first batch merges — not something to pick up unprompted.
 - **Real CI results read back (2026-08-24)**, after all ten `claude/*`
   branches' first CI runs finally cleared the runner backlog. Every
   branch's *own* fix validated for real, matching what local testing

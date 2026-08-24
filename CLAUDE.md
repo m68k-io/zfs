@@ -703,6 +703,17 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 
 ## Current status / next steps
 
+- **User's chosen upstream submission order (2026-08-24)**: asked for
+  a recommended order (product-code fixes first, `linux-stable-kernel`
+  last since it's the biggest environmental change and has an open
+  `auto_replace_001/002_pos` lead) — user explicitly disagreed and
+  wants `linux-stable-kernel`, `mmp`, and `history_uncompress`
+  submitted first, **then rebase** (presumably: sync `master` from
+  upstream once those land, rebase `baseline`, per the established
+  flow). Remaining branches' order not yet decided. This is the
+  user's own manual submission via the separate `alex-moch` account —
+  nothing for this fork to do until they come back after landing
+  these three and ask for the sync/rebase.
 - **Real CI results read back (2026-08-24)**, after all ten `claude/*`
   branches' first CI runs finally cleared the runner backlog. Every
   branch's *own* fix validated for real, matching what local testing

@@ -703,17 +703,25 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
 
 ## Current status / next steps
 
-- **User's chosen upstream submission order (2026-08-24)**: asked for
-  a recommended order (product-code fixes first, `linux-stable-kernel`
-  last since it's the biggest environmental change and has an open
-  `auto_replace_001/002_pos` lead) — user explicitly disagreed and
-  wants `linux-stable-kernel`, `mmp`, and `history_uncompress`
-  submitted first, **then rebase** (presumably: sync `master` from
-  upstream once those land, rebase `baseline`, per the established
-  flow). Remaining branches' order not yet decided. This is the
-  user's own manual submission via the separate `alex-moch` account —
-  nothing for this fork to do until they come back after landing
-  these three and ask for the sync/rebase.
+- **First three upstream PRs submitted (2026-08-24)**: asked for a
+  recommended submission order (product-code fixes first,
+  `linux-stable-kernel` last) — user explicitly disagreed and chose
+  `linux-stable-kernel`, `mmp`, and `history_uncompress` first
+  instead. Helped fill out all three PR description templates
+  (Motivation/Description/How Tested), correcting/expanding the
+  testing sections along the way: confirmed `mmp` clean across the
+  *whole* CI matrix, not just Alpine (glibc distros too — initially
+  only checked Alpine, corrected after the user pushed back); found
+  that the `auto_replace_001/002_pos` "new lead" flagged the day
+  before is a non-issue — ZTS's own results summary already lists
+  both as pre-existing, tracked-upstream expected failures
+  (`openzfs/zfs#14851` and "Known issue"), unrelated to the
+  `linux-stable-kernel` change. **User has now pushed all three PRs**
+  via the separate `alex-moch` account and is waiting for them to
+  merge before doing anything further — next step when they come
+  back: sync this fork's `master` from upstream and rebase `baseline`
+  onto it, per the established flow. Remaining seven branches'
+  submission order not yet decided.
 - **Real CI results read back (2026-08-24)**, after all ten `claude/*`
   branches' first CI runs finally cleared the runner backlog. Every
   branch's *own* fix validated for real, matching what local testing

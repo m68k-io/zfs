@@ -136,7 +136,7 @@ tracks upstream `master`.
     onto a freshly-synced `master`: git recognized it as patch-id-
     equivalent to an already-upstream commit and dropped it automatically,
     leaving only the two commits above.
-- Eleven one-commit fix branches, each stacked directly on `baseline` and
+- Twelve one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
   **Six validated locally with real ZTS test runs as of 2026-08-23** (see
@@ -251,8 +251,18 @@ tracks upstream `master`.
     immediately with a specific message when output is empty — used
     by nearly every test in the suite, not just the one that
     surfaced it.
+  - `claude/procfs_stale_read_portable` (`b6f387b30`, new 2026-08-24,
+    a quick triage pass) — `procfs_list_stale_read` grepped `cat`'s
+    stderr for the literal string `"Input/output error"` (GNU
+    coreutils' wording); Alpine's `cat` says `"I/O error"` instead,
+    so the grep never matched regardless of whether the actual stale-
+    read behavior was correct. Checks `cat`'s exit status instead —
+    portable, since a nonzero exit on `EIO` is guaranteed where the
+    exact message text isn't. Verified directly against the real
+    kernel module and real `/proc/spl/kstat/zfs/<pool>/txgs`, both
+    scenarios the test exercises.
 
-  Next for these eleven: the user submits them upstream independently
+  Next for these twelve: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -729,9 +739,25 @@ config, not a shared runner limitation.
      - Confirmed fixed: manual repro 8+/8+ clean runs, real ZTS test
        8/8, full `rsend/` directory (79 tests) run for regressions —
        see "Local validation results" for the outcome.
-   - **Still open, no lead yet**: `procfs_list_stale_read` (fails because
-     `grep "Input/output error"` doesn't match — the actual I/O error
-     message text may differ on this kernel/musl, not confirmed).
+   - **`procfs_list_stale_read` — root cause found and fixed
+     (2026-08-24).** Confirmed directly (real kernel module loaded,
+     real `/proc/spl/kstat/zfs/<pool>/txgs`, real `cat`): the stale
+     read genuinely fails with `EIO` exactly as intended, but
+     Alpine's `cat` (the "coreutils" package's multi-call binary, a
+     lightweight reimplementation, not GNU coreutils) reports it as
+     `cat: -: I/O error`, not `Input/output error` — the string the
+     test grepped for. New branch
+     `claude/procfs_stale_read_portable` (`b6f387b30`): check `cat`'s
+     exit status (portable, `EIO` reliably yields nonzero) instead of
+     its message text (not portable). Verified both scenarios the
+     test exercises (clearing entries via `echo 0 > $TXG_HIST`, and
+     pushing old entries out via enough new `zpool sync` calls)
+     directly against the real procfs file — both now correctly
+     detect the failure. The formal test-runner invocation hit the
+     same `STF_SUITE`/path-resolution quirk noted elsewhere in this
+     file (not re-debugged); the manual replication exercises the
+     identical real kernel module + real `cat` binary the test itself
+     would, so it's trusted as sufficient here too.
 7. **SKIPs that should be PASS — root cause found and fixed
    (2026-08-23).** Originally guessed as "needs real disks" (wrong
    guess). All 17 remaining tests (`zpool_expand_001/003/005/006_pos`,
@@ -969,9 +995,11 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   (a real kill/pgrep race, confirmed generic not Alpine-specific).
   `send-c_stream_size_estimate` traced to a real `zfs send` progress-
   thread teardown race in `libzfs_sendrecv.c` — fixed by
-  `claude/send_progress_race` (`32d09c43d`), see cluster 6 above. Still
-  open, no lead: `procfs_list_stale_read`, `zfs_get_006_neg`
-  (getopt_permute ruled out).
+  `claude/send_progress_race` (`32d09c43d`), see cluster 6 above.
+  `procfs_list_stale_read` fixed by `claude/procfs_stale_read_portable`
+  (`b6f387b30`) — grepped for non-portable `cat` error text, see
+  cluster 6 above. Still open, no lead: `zfs_get_006_neg` (getopt_permute
+  ruled out).
 - Clusters 4 and 5 (the two crash clusters) are both still
   **unreproduced** despite real attempts this session (individual tests,
   full test-group batches, correct non-root user) — genuinely

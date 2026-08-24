@@ -239,18 +239,22 @@ tracks upstream `master`.
     (40/40 + 20/20 + a real send/receive round trip, all using the
     *original* unfixed `libzfs_sendrecv.c` to prove this fix alone is
     sufficient).
-  - `claude/get_prop_empty_value` (`f9d7d9aae`, new 2026-08-24,
-    found while digging into the `lzc_send_wrapper_splice_race` CI
-    lead — see "Current status" above for the full story) —
+  - `claude/get_prop_empty_value` (`f9d7d9aae`, new 2026-08-24) —
     `get_prop()`/`get_pool_prop()`/`get_vdev_prop()` in
     `libtest.shlib` checked exit status but not whether the command
-    actually printed a value, so a rare empty-output hiccup from
-    `zfs get`/`zpool get` (real cause still unknown, not reproduced
-    locally) surfaced as a confusing, misattributed `bc`/`[` crash
-    several steps later instead of a clear failure. Now `log_fail`s
-    immediately with a specific message when output is empty — used
-    by nearly every test in the suite, not just the one that
-    surfaced it.
+    actually printed a value; now `log_fail`s immediately with a
+    specific message when output is empty. The logic is verified
+    correct (real value / legitimately-empty value / stubbed
+    empty-output case, all checked live). **Its motivation was wrong
+    and later withdrawn**: originally thought this explained the
+    `rsend/send-c_stream_size_estimate` CI failure — live
+    reproduction (2026-08-24, see "Current status" below) proved
+    that failure is genuine `zfs send -nP` output corruption
+    (already root-caused elsewhere in this file), and `get_prop`
+    was never involved. There's no confirmed instance of `zfs
+    get`/`zpool get` actually printing nothing. User is closing
+    `openzfs/zfs#18983` rather than carry a defensive check with no
+    real trigger behind it.
   - `claude/procfs_stale_read_portable` (`b6f387b30`, new 2026-08-24,
     a quick triage pass) — `procfs_list_stale_read` grepped `cat`'s
     stderr for the literal string `"Input/output error"` (GNU
@@ -947,7 +951,12 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   **All four PRs are now open upstream**
   (`openzfs/zfs#18979` mmp, `#18980` linux-stable-kernel, `#18981`
   history_uncompress, `#18983` get_prop_empty_value) — none merged
-  yet. **User is deliberately waiting for this first batch to merge
+  yet. **`#18983` is being closed (2026-08-24)**: a reviewer asked
+  for the CI logs behind the "observed on real CI" claim, which led
+  to discovering the claim was wrong (see the `get_prop_empty_value`
+  entries above) — no confirmed real-world trigger for the fix, so
+  the user is withdrawing it rather than defend an unconfirmed
+  failure mode. **User is deliberately waiting for this first batch to merge
   before submitting the remaining seven branches themselves** (not
   asking for help with that submission round) — nothing for this
   fork to do until they come back, at which point the next step is:
@@ -983,52 +992,58 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
       against pre-existing upstream issues (`openzfs/zfs#14851` and
       "Known issue"), unrelated to this branch.
     - `claude/lzc_send_wrapper_splice_race`'s `get_prop lrefer`
-      empty-output failure: **confirmed NOT caused by that branch**
-      — checked every other CI run available (`mmp`, `tzdata`,
-      `user_namespace`, `libcap-utils`, `getopt_permute`,
-      `history_uncompress`, `mkbusy_kill_race` — none touch send
-      code at all) and every one hits the *identical* failure, same
-      timing (~30-40ms after the snapshot), same signature. It's a
-      pre-existing flake present on `baseline` regardless of branch.
-      Traced the mechanism precisely: `within_percent()` in
-      `math.shlib` is called unquoted
-      (`within_percent $ds_size $ds_lrefer 90`); when `get_prop
-      lrefer $send_ds` returns truly empty output, the empty
-      unquoted argument vanishes from the call, shifting `90` into
-      the `$2` slot and leaving `percent` unset — that's what
-      produces the `bc: bad expression`/`[: argument expected`
-      errors. Tried hard to reproduce the underlying empty-output
-      cause locally (400+ iterations, including under heavy
-      artificial CPU/memory/I/O stress via 16 busy-loops + 4
-      concurrent `dd oflag=direct` writers + a 24 GiB memory hog) —
-      never reproduced it. Found the likely reason why: the CI log's
-      `zfs_dbgmsg` dump at the failure moment shows genuine
-      *concurrent, unrelated* pool activity (`testpool3`, mid `zfs
-      recv`) on a different kernel thread at the same wall-clock
-      second — `vm1`/`vm2` in the CI logs aren't two separate
-      machines, they're two parallel `test-runner.py` processes
-      (different `-T` test-group lists) sharing one kernel on one
-      VM, which is a form of contention a single-stream local repro
-      can't produce. Root kernel-level cause (why `zfs get -Hpo
-      value` returns literally empty rather than a stale value under
-      that contention) still unknown — would need instrumentation
-      inside the actual CI runner to pin down further.
-      - **Fixed what *was* fixable**: `get_prop()`/`get_pool_prop()`/
-        `get_vdev_prop()` in `libtest.shlib` checked exit status but
-        never validated the command actually printed a value, so
-        this class of failure always surfaces several steps removed
-        from the real cause (a `bc` crash instead of "get_prop
-        returned empty"). New branch `claude/get_prop_empty_value`
-        (`f9d7d9aae`) makes all three `log_fail` immediately with a
-        specific message when output is empty. Doesn't fix or
-        explain the underlying rare `zfs get` hiccup — makes it
-        diagnosable instead of confusing, for every test that uses
-        these (very widely used) helpers, not just this one.
-        Verified with a standalone ksh harness (real `zfs get` on the
-        success path; a stubbed empty-output `zfs get` on the
-        failure path) since the formal ZTS test-runner has an
-        unrelated local permission issue (see below) that wasn't
-        worth fighting again for a pure-shell-logic change.
+      empty-output failure: **misdiagnosed at the time (2026-08-24),
+      corrected 2026-08-24 after the user pushed on the "how do you
+      know it's `get_prop`" question and asked for a live repro.**
+      Originally read `ERROR: within_percent 16795648 90 exited 2`
+      and *assumed*, without checking, that `16795648` was `$ds_size`
+      and the vanished argument was `$ds_lrefer` (from `get_prop`) —
+      that assumption was never verified and turned out backwards.
+      This is the *same* `rsend/send-c_stream_size_estimate` failure
+      already correctly root-caused above as genuine `zfs send -nP`
+      output corruption (the "real product bug, TRUE root cause
+      found" entry) — it should have been recognized as the same bug
+      instead of re-investigated from scratch under a new theory.
+      Confirmed by live reproduction on a throwaway branch (`baseline`
+      + `get_prop_empty_value` only, deliberately excluding both send
+      fixes, with debug prints added to `get_prop()` and
+      `get_estimated_size()`): reproduced on the **first attempt**,
+      and `ds_size=[] ds_lrefer=[16795648]` — `get_prop`'s output
+      (`$ds_lrefer`) was correct throughout; `get_estimated_size()`'s
+      `awk` parse of `zfs send -nP`'s output (`$ds_size`) came back
+      empty because the captured output was just `size\t16819824`
+      with the `full\t<snap>\t<size>` line missing entirely. The
+      400+-iteration local reproduction attempts failed because they
+      were chasing empty `get_prop` output, which doesn't happen —
+      once the actual target (`zfs send -nP` corruption) was
+      instrumented, it reproduced immediately, no contention needed.
+      **`get_prop` is not, and never was, implicated in this test.**
+      The "two parallel `test-runner.py` workers sharing one VM"
+      scheduling-contention theory was never verified either; it's
+      the kind of hypothesis that sounded plausible and got restated
+      as fact through repetition rather than evidence. There remains
+      no confirmed instance, anywhere, of `zfs get`/`zpool get`
+      actually exiting 0 while printing nothing.
+      - **`claude/get_prop_empty_value`'s own logic still checks out**
+        on its own merits, unrelated to this test: re-verified live
+        (2026-08-24) against a real pool — real value returns
+        unchanged, a user property explicitly set to `""` returns
+        empty without `log_fail`, a stubbed "exits 0, prints nothing"
+        `zfs` triggers `log_fail` immediately with the intended
+        message. It just has no connection to any failure actually
+        observed on CI — the PR's motivating example was wrong, and
+        the user is closing `openzfs/zfs#18983` rather than keep a
+        defensive check with no confirmed trigger.
+      - **Still open**: `claude/lzc_send_wrapper_splice_race`'s own
+        real CI run (job `97254204074`) *also* failed
+        `send-c_stream_size_estimate`, despite the branch's local
+        validation claiming to be "sufficient on its own" against the
+        original unfixed `estimate_size()`/`send_print_verbose()`.
+        `claude/send_progress_race`'s CI run passed it. Both branches
+        are based on `baseline`, neither stacked on the other, so
+        this isn't a merge-order artifact — genuinely unresolved why
+        the splice-race fix doesn't clear this on real CI when the
+        progress-thread workaround does. Not yet investigated further.
 - Basics are done: `baseline` builds and installs cleanly, kernel module
   loads, ZTS runs (both file-vdev and real-disk modes confirmed).
 - Six `claude/*` fix branches now exist, all locally validated (see

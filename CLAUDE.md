@@ -136,7 +136,7 @@ tracks upstream `master`.
     onto a freshly-synced `master`: git recognized it as patch-id-
     equivalent to an already-upstream commit and dropped it automatically,
     leaving only the two commits above.
-- Twelve one-commit fix branches, each stacked directly on `baseline` and
+- Thirteen one-commit fix branches, each stacked directly on `baseline` and
   each targeting one root cause. Not meant to be merged into `baseline`
   (see above) — meant to go to upstream `openzfs/zfs` independently.
   **Six validated locally with real ZTS test runs as of 2026-08-23** (see
@@ -261,8 +261,11 @@ tracks upstream `master`.
     exact message text isn't. Verified directly against the real
     kernel module and real `/proc/spl/kstat/zfs/<pool>/txgs`, both
     scenarios the test exercises.
+  - `claude/exec_001_pos_multicall` (`855033220`, new 2026-08-24,
+    same quick triage pass) — see cluster 1 (BusyBox/multi-call
+    applet dispatch) above for the full story.
 
-  Next for these twelve: the user submits them upstream independently
+  Next for these thirteen: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
@@ -353,13 +356,24 @@ config, not a shared runner limitation.
 
 ### Unexpected-failure clusters identified so far
 
-1. **BusyBox applet dispatch** — `readlink -f` (or anything that resolves
-   through the `busybox` symlink) breaks argv[0]-based dispatch.
-   Confirmed root cause of `user_namespace_001` (fix exists) and
-   `exec/exec_001_pos` (`coreutils: unknown program 'myls'` — copying a
-   binary to a new name and exec'ing it fails; not yet fixed, same family
-   as the user_namespace fix but a different code path since it's a copied
-   binary, not a symlink resolution).
+1. **Multi-call-binary applet dispatch (Alpine's `coreutils` package,
+   not actually BusyBox — confirmed via `readlink -f $(which ls)` →
+   `coreutils`, not `busybox`)** — breaks whenever a test's `argv[0]`
+   basename isn't a name the dispatch table recognizes. Confirmed
+   root cause of `user_namespace_001` (symlink-resolution variant,
+   fix exists) and `exec/exec_001_pos` (`coreutils: unknown program
+   'myls'` — copying the binary to a differently-named file, then
+   exec'ing it, is the same dispatch-by-basename failure via a
+   different code path — **fixed 2026-08-24**,
+   `claude/exec_001_pos_multicall` (`855033220`): copy to
+   `$TESTDIR/ls` instead of `$TESTDIR/myls` — plain rename, dispatch
+   is by basename only, no other behavior change, verified directly
+   (both the execute and the `mmap(2)`/`PROT_EXEC` checks). Checked
+   `exec_002_neg.ksh`'s identical `myls` pattern too: confirmed
+   *not* affected and left alone — it sets `exec=off` first, so the
+   kernel refuses the `execve(2)` itself (`EACCES`/126) before the
+   binary's own dispatch logic would ever run either way, confirmed
+   directly rather than just reasoned about).
 2. **musl `gethostid()`** — root cause of the 13 `mmp/*` failures + 1
    `multihost_history` (fix exists, see `claude/mmp`).
 3. **Missing `uncompress`** — root cause of `history_001_pos`/`_007_pos`

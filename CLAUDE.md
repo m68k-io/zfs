@@ -186,10 +186,33 @@ tracks upstream `master`.
     orderings. **This is likely a broader pattern**: any ZTS test (or
     real invocation) that places flags after a positional argument on any
     OpenZFS CLI tool (`zinject`, `zpool`, `zfs`, ...) is exposed to this
-    on musl. Only this one instance has been found and fixed so far —
-    worth a dedicated sweep for other occurrences, not yet done. Depends
-    on `claude/mmp` to be testable at all (`mmp_write_uberblocks` fails
-    at an earlier step on `baseline` alone).
+    on musl. Depends on `claude/mmp` to be testable at all
+    (`mmp_write_uberblocks` fails at an earlier step on `baseline` alone).
+    **Partial sweep done (2026-08-24), on the user's ask.** Classified
+    every plain `getopt()` call in `cmd/` by whether its optstring has a
+    leading `+`/`-` (permutation-safe on both libcs) or not (glibc
+    permutes, musl doesn't — the exact mechanism here): exposed tools are
+    `zfs`, `zpool`, `zinject`, `zhack` (one parser only —
+    `metaslab_leak`'s `"f"`, everything else in `zhack` already guards
+    with `+`), all 6 `zstream` subcommands, `raidz_test`, and
+    `zfs_ids_to_path`. Cross-checked against real ZTS invocations for
+    everything **except `zfs`/`zpool` themselves** (by far the largest
+    surface — ~40 subcommand parsers across ~2000 tests; doing this
+    precisely, the way `zinject` was checked below, means a
+    flag-arity table per subcommand, not a generic regex, since a naive
+    "flag after any non-dash token" sweep is mostly noise from flag
+    *values* like `-d $DISK1` — not yet done, stopped here on the
+    user's call, not for lack of a path forward). Results for what
+    *was* checked: **`zinject`** — every invocation in the suite,
+    using its real flag-arity table (`:aA:b:C:d:D:E:f:Fg:qhIc:t:T:l:
+    mr:s:e:uL:p:P:`); the only real flag-after-positional case anywhere
+    is the already-fixed `mmp_write_uberblocks.ksh` one, nothing else.
+    **`zhack`**'s one exposed parser (`metaslab leak`) — only one test
+    calls it (`zhack_metaslab_leak.ksh`) and never passes `-f` at all,
+    so it's a latent inconsistency, not a currently-triggered bug.
+    **`zstream`** (all 6 subcommands) and **`raidz_test`**/
+    **`zfs_ids_to_path`** — every invocation checked, flags always
+    precede positionals, clean.
   - `claude/tzdata` (`93e4d710e`, new 2026-08-23, found while validating
     `claude/history_uncompress`; originally `c5edaf6cd`, amended to wrap
     the commit body at 72 chars after `checkstyle`'s `commitcheck`

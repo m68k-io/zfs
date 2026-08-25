@@ -980,6 +980,62 @@ config, not a shared runner limitation.
      instrumentation to log which variable is being processed right
      before the crash), lives in the sibling `~/Development/ksh`
      fork's own `CLAUDE.md`.
+     **ACTUAL ROOT CAUSE FOUND (2026-08-25).** Added the `nv_scan()`
+     instrumentation from the idea above (branch
+     `claude/sh_envgen_instrumentation` on `m68k-io/ksh`, raw
+     `write(2)` logging in `pushnam()`) and ran it via a new
+     `claude/combined-review-4` branch here. The crash fired again
+     (same tests) but **zero instrumented `pushnam()` lines appear
+     for any crashing PID** — the crash isn't in `pushnam()`/
+     `staknam()` at all. Disassembled the exact crash address instead
+     (confirmed via `nm` to fall strictly inside `sh_envgen`'s own
+     emitted range, not `nv_scan`'s or `pushnam`'s separate symbols):
+     it's `sh_envgen()`'s own `strlen(sh.save_env[i])` line.
+     `sh.save_env[]` holds raw pointers directly into `environ` for
+     env vars with invalid (non-identifier) names; nothing guarantees
+     that memory survives until `sh_envgen()` next reads it (`fixargs()`
+     can relocate `environ`'s storage for the process-title trick, and
+     `exscript()` replaces `environ` wholesale). This is why it never
+     reproduced locally: it's gated on environment *content* (whether
+     any inherited env var has an invalid name), not timing — this dev
+     VM's environment has none (`sh.save_env_n == 0`, confirmed live via
+     `gdb`), so the vulnerable code path never even executes here.
+     Also explains the earlier `1.0`-vs-`dev` branch split found by the
+     `claude/combined-review-5-ksh10-check` run below: `zpool_add_001_
+     neg`/`zpool_create_001_neg`/`zfs_list_007_pos` crash on *both*
+     branches (this bug predates the split), while `zpool_iostat_-c_*`/
+     `zpool_status_-c_*` crashed only on `dev` (a separate, still-open
+     question — possibly a second issue, not yet investigated since
+     this fix may resolve them too).
+     **Fix pushed**: `claude/save_env_dangling_environ_ptr` on
+     `m68k-io/ksh` (`import1var()` now copies via `sh_strdup()` instead
+     of aliasing `environ` directly). Full writeup including the
+     disassembly evidence and a real bug caught in the first attempt at
+     this fix (a `free()` call that crashed on `sh_envgen()`'s own
+     stak-allocated copy) is in the sibling `~/Development/ksh` fork's
+     `CLAUDE.md`. **Validating now** via
+     `claude/combined-review-6-saveenv-fix` here — check
+     `gh run list --repo m68k-io/zfs --branch
+     claude/combined-review-6-saveenv-fix` for the outcome if not
+     already known.
+
+     **Aside, found while chasing this (2026-08-25)**: re-ran the
+     unmodified fast targeted runfile against plain upstream ksh's
+     `1.0` branch (`claude/combined-review-5-ksh10-check`, no m68k-io
+     fork fix at all) specifically to check whether cluster 5 is
+     `dev`-branch-specific, since this repo's CI has always built ksh
+     from an unpinned clone of `dev` (ksh93/ksh's unstable branch,
+     versioned `93u+m/1.1.0-alpha+<hash>`) rather than any release —
+     the last real tag, `v1.0.10`, is from 2024-08-01, over two years
+     stale, while the separately-maintained `1.0` branch is still
+     receiving backports (tip from 2026-08-17) and never received
+     `db227904a`, the commit the disproven `staknam` theory traced to.
+     Result: `zpool_iostat_-c_*`/`zpool_status_-c_*` (6 tests) do NOT
+     crash on `1.0` — clean pass — while `zpool_add_001_neg`/
+     `zpool_create_001_neg`/`zfs_list_007_pos` still crash on `1.0`
+     too. This was the finding that prompted digging into
+     `combined-review-4`'s cores more carefully above, since it proved
+     cluster 5 wasn't one bug.
 6. **Cluster 6 triage, 2026-08-23** — went through the full original
    list. Methodology note that applies to all of this: local `-t <path>`
    runs default to root; several `cli_user/*` tests need `-u zfs`

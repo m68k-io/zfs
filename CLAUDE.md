@@ -951,6 +951,35 @@ config, not a shared runner limitation.
      it), so this is based on a correct-per-the-documented-contract
      static analysis, not a confirmed-by-repro fix — flagged as such in
      the commit message.
+     **Real-CI validation (2026-08-25) shows this fix did NOT resolve
+     the crashes.** Added a diagnostic-only commit on top of
+     `claude/combined-review-2` (kept as `claude/combined-review-3`)
+     pointing `qemu-3-deps-vm.sh`'s ksh93 build at
+     `https://github.com/m68k-io/ksh.git` branch
+     `claude/sh_envgen_stale_strbuf` instead of upstream, restricted to
+     a runfile of just the known-failing tests for a fast (~24min)
+     targeted run instead of the full ~5.5h suite. Run
+     `32816307233`, job `97705239675`: confirmed via the build log
+     (`KornShell Version AJM 93u+m/1.1.0-alpha+36c724d4`) that the fix
+     really was the binary under test. `zpool_add_001_neg`,
+     `zpool_create_001_neg`, all 3 `zpool_iostat_-c_*`, all 3
+     `zpool_status_-c_*`, and `zfs_list_007_pos` **still crashed**.
+     Downloaded the fresh core dumps from this run and confirmed via
+     `gdb`/`addr2line` an **identical** crash signature to the pre-fix
+     cores: `#0 strlen()` on an unmapped pointer, called from the same
+     file offset (`0x4caf9`) in `libshell.so.4`, resolving to the same
+     `sh_envgen` frame. So `staknam()`'s stale-`sh.strbuf` bug is real
+     and independently worth fixing (still pushed, still passes the
+     full local regression suite) but is **not** the trigger for these
+     specific crashes — either a different stale-pointer path into
+     `sh.strbuf` is the actual culprit (`nv_name()`/`nv_getval()` are
+     not the only functions in `name.c`/`nvtree.c`/`nvdisc.c` that
+     write to it), or something else entirely. True root cause of
+     cluster 5 remains open. Full writeup, including the exact repro
+     branch/job and next-step ideas (`nv_scan()` callback
+     instrumentation to log which variable is being processed right
+     before the crash), lives in the sibling `~/Development/ksh`
+     fork's own `CLAUDE.md`.
 6. **Cluster 6 triage, 2026-08-23** — went through the full original
    list. Methodology note that applies to all of this: local `-t <path>`
    runs default to root; several `cli_user/*` tests need `-u zfs`

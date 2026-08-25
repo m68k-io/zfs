@@ -919,6 +919,38 @@ config, not a shared runner limitation.
      actionable next step for *this* project is probably just to
      report it to the `ksh93` project with this exact analysis, rather
      than attempt a fix here.
+     **Fix written and pushed (2026-08-24), in the sibling `ksh93`
+     fork** (`~/Development/ksh`, `https://github.com/m68k-io/ksh`,
+     branch `claude/sh_envgen_stale_strbuf`) — this is a separate repo
+     from this one, not part of `openzfs/zfs`, so nothing changes here.
+     Closer reading of `staknam()`/`sh_envgen()` confirmed the exact
+     mechanism: both `nv_getval()` (for a reference variable with a
+     subscript) and `nv_name()` (for a compound/namespace-qualified
+     name) can return a pointer into the single, shared `sh.strbuf`
+     string stream, whose contract (`sfstruse(3)`) explicitly says the
+     returned pointer is only valid until the next write to that same
+     stream. `staknam()` called `nv_name()` *twice* (size, then fill)
+     with a `value` from `nv_getval()` sitting unused in between — if
+     either `nv_name()` call wrote to `sh.strbuf`, it could invalidate
+     `value` before it was ever read, and the double `nv_name()` call
+     itself risks a size/content mismatch (it can leave `sh.last_table`
+     changed as a side effect, changing what a second call for the same
+     variable resolves to). `git blame` traced this to a likely real
+     regression, `db227904a` (2024-02-28, "Further robustify
+     sh_reinit()") — before it, an imported variable used the stable
+     `np->nvenv` pointer directly, bypassing `staknam()` and this
+     hazard entirely; after it, `pushnam()` always goes through
+     `nv_getval()` instead. Fix: copy `value` to stable stack memory
+     before calling `nv_name()` at all, and call `nv_name()` exactly
+     once. Full local regression suite (`bin/shtests`) run both before
+     and after the fix: one failure either way, `subshell.sh`'s
+     `shcomp` variant — confirmed pre-existing and unrelated (a
+     stderr-draining timing race, fails intermittently on unmodified
+     `48940aaa` too, at the same rate) — otherwise clean. **Still not
+     locally reproduced** even with this fix applied (same as without
+     it), so this is based on a correct-per-the-documented-contract
+     static analysis, not a confirmed-by-repro fix — flagged as such in
+     the commit message.
 6. **Cluster 6 triage, 2026-08-23** — went through the full original
    list. Methodology note that applies to all of this: local `-t <path>`
    runs default to root; several `cli_user/*` tests need `-u zfs`

@@ -1007,17 +1007,44 @@ config, not a shared runner limitation.
      `zpool_status_-c_*` crashed only on `dev` (a separate, still-open
      question — possibly a second issue, not yet investigated since
      this fix may resolve them too).
-     **Fix pushed**: `claude/save_env_dangling_environ_ptr` on
-     `m68k-io/ksh` (`import1var()` now copies via `sh_strdup()` instead
-     of aliasing `environ` directly). Full writeup including the
-     disassembly evidence and a real bug caught in the first attempt at
-     this fix (a `free()` call that crashed on `sh_envgen()`'s own
-     stak-allocated copy) is in the sibling `~/Development/ksh` fork's
-     `CLAUDE.md`. **Validating now** via
-     `claude/combined-review-6-saveenv-fix` here — check
-     `gh run list --repo m68k-io/zfs --branch
-     claude/combined-review-6-saveenv-fix` for the outcome if not
-     already known.
+     **FIX CONFIRMED (2026-08-25)**: `claude/save_env_dangling_environ_ptr`
+     on `m68k-io/ksh` (`import1var()` copies via `sh_strdup()` instead
+     of aliasing `environ` directly). First CI validation of that alone
+     (commit `2adcbd04`) still crashed identically — a second real bug
+     in `sh_envgen()` itself was also repointing `sh.save_env[i]` at
+     short-lived `stkalloc()` memory on every call, undoing the fix
+     after the first external-command exec. Fixed in a follow-up commit
+     (`31c80ef1`, that loop now only writes to the returned `er[]`
+     array, never back into `sh.save_env[i]`). Full disassembly/
+     register-state evidence for both rounds is in the sibling
+     `~/Development/ksh` fork's `CLAUDE.md`.
+     Re-ran `claude/combined-review-6-saveenv-fix` (`gh run rerun` on
+     run `32824560746`, confirmed via build log it picked up `31c80ef1`)
+     with this complete fix: **zero core dumps** (artifact size alone
+     — 252 KB vs. 2.3-8.9 MB in every prior run — was the first sign).
+     Every test that used to crash now passes clean: `zpool_iostat_-c_*`
+     (all 3), `zpool_status_-c_*` (all 3), `zpool_add_001_neg`,
+     `zpool_create_001_neg`, `zfs_list_003_pos`/`_007_pos`. Remaining
+     failures in that run are entirely cluster 4 (the separate,
+     unrelated `zdb`/dedup crash) and the two already-tracked issues
+     (`zfs_get_006_neg`, `send-c_stream_size_estimate`) — **nothing
+     left attributable to cluster 5**. This closes out cluster 5 after
+     350+ failed local reproduction attempts across two investigations
+     — it ultimately required real CI + core dumps + disassembly +
+     register-state analysis, never local repro, since the trigger (an
+     invalid-named env var present in CI's musl images but not this
+     dev VM, combined with `sh_envgen()` running more than once) never
+     lined up in any synthetic local attempt.
+     **Not yet done**: getting this fix actually merged/used. It lives
+     on `m68k-io/ksh`, a downstream fork — the real next step is either
+     upstreaming it to `ksh93/ksh` (the maintainers own far more
+     context on `sh.save_env`/`environ` lifetime than reconstructable
+     from source reading alone) or, at minimum, pinning this fork's own
+     `qemu-3-deps-vm.sh` to build from this fork+branch instead of
+     plain upstream `ksh93/ksh` if this project wants cluster 5 to stay
+     fixed outside of the diagnostic `combined-review-*` branches. The
+     current `**DEBUG**`-commit staging branches used for validation are
+     not meant to persist — see "This fork is a staging area" above.
 
      **Aside, found while chasing this (2026-08-25)**: re-ran the
      unmodified fast targeted runfile against plain upstream ksh's

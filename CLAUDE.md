@@ -824,6 +824,101 @@ config, not a shared runner limitation.
      for cluster 5 to 350+ attempts across every angle tried
      (isolated, contended, parallel, and now the simplest-possible
      failing test), still without a single local reproduction.
+   - **ROOT CAUSE FOUND (2026-08-24), via a real core dump off real
+     CI — `sh_envgen()` in ksh93 itself, not `zpool` or `zdb`.** Local
+     reproduction never succeeded (350+ attempts, every angle tried:
+     real `ksh`, real loopback disks matching CI exactly, varied/
+     padded environments, CPU contention, genuine parallelism, a full
+     untagged local suite run). Pivoted to capturing a real core off
+     real CI instead: added a diagnostic-only commit on top of
+     `claude/combined-review-2` (`kernel.core_pattern=/var/tmp/
+     core.%e.%p`, `ulimit -c unlimited` in `qemu-6-tests.sh`'s Alpine
+     block, plus an `scp` of `/var/tmp/core.*` back in
+     `qemu-7-prepare.sh`) and restricted the matrix to `alpine3-24`
+     only (`zfs-qemu.yml`'s `os_selection`) to get a fast, focused run.
+     The resulting run (`32782473016`, job `97607371379`, ~5.5h) came
+     back with **10 real core files** in its artifact (5.3 MB total —
+     the size worry going in was unfounded; each core is 1.8-2.6 MB,
+     musl's default `coredump_filter` excludes most file-backed shared-
+     library pages). Analyzed with `gdb` locally, using this VM's own
+     `ksh93`/`musl-dbg` (confirmed earlier to be byte-identical in
+     version/commit to what produced the cores — `zdb`/`libzpool`
+     needed a fresh rebuild of the exact `claude/combined-review-2`
+     commit to reduce (not eliminate) build-id mismatches; `libshell.so`/
+     `libast.so` still didn't match build-id, but were close enough for
+     `addr2line` offset lookups against this VM's own copies to resolve
+     correctly, confirmed by getting *consistent, sensible* answers
+     across seven different cores).
+     **Seven of the ten cores** (`zpool_iostat_-c.*` ×3,
+     `zpool_status_-c.*` ×3, `zpool_add_001_n.11967`,
+     `zpool_create_00.12007`, `zfs_list_003_po.17728`,
+     `zfs_list_007_po.17830/17858/17877` — the `zfs_list` ones
+     "probable" above are now **confirmed**) show the **exact same
+     crash, byte-identical down to the file offset in every single
+     one**: `#0 strlen()` (musl, `src/string/strlen.c:17`) called on a
+     pointer that is fully unmapped (`a = 0x7fa465c3f110 <error:
+     Cannot access memory at address 0x7fa465c3f110>` — the literal bad
+     pointer, captured directly for the first time), called from
+     `#1 0x...af9` inside `/lib/libshell.so.4` at file offset `0x4caf9`
+     in every core — which `addr2line` resolves to **`sh_envgen()`**
+     in `src/cmd/ksh93/sh/name.c`. `sh_envgen()` is ksh93's own
+     function for building the environment array before `exec()`ing a
+     child process (called from `sh/path.c` and `sh/xec.c` on every
+     external command a script runs) — it walks `sh.var_tree` via
+     `nv_scan(..., pushnam, ...)`, and `pushnam()`'s helper `staknam()`
+     (both `static`, inlined into `sh_envgen` at `-O2`, hence the
+     single resolved frame) does `strlen(nv_name(np))` on every
+     exported variable's name to size a stack-allocated buffer. If
+     `nv_name(np)` returns a stale pointer for some variable — plausible
+     given ksh93's "stak" allocator (a scratch/temporary string stack
+     distinct from the OS thread stack) is a known-fragile design
+     where a variable can end up holding a pointer into a stak region
+     that gets popped/reused before the variable is later read — this
+     is exactly the crash. **This is why nothing about `zpool`, `zdb`,
+     disk backend, or resource pressure ever mattered**: the crash is
+     entirely inside ksh93's own environment-building code, triggered
+     on *any* external command exec, which is why it hit such
+     superficially unrelated tests (`zpool_add`, `zfs_list`, the `-c`
+     script tests) — they all just happen to `exec` something (`zpool`,
+     `awk`, a user script) at the point some exported variable's name
+     pointer has already gone stale. Also explains why manual
+     replication of "the commands the test runs" never reproduced it:
+     the bug isn't in *what* gets exec'd, it's in ksh's own bookkeeping
+     of *previously-exported variables* by the time *some* exec happens
+     — almost certainly dependent on the exact sequence of variable
+     exports/scope changes earlier in the script (or possibly earlier
+     in the whole test run, inherited some other way), which none of
+     this session's manual reproductions replicated faithfully since
+     they either ran the real script in isolation (missing whatever
+     came before in a real full-suite run) or hand-typed approximations
+     of it.
+     **The `zdb` core** (`core.zdb.10856`, from cluster 4, captured by
+     the same infrastructure) added little beyond confirming the
+     already-known mechanism: `Program terminated with signal SIGABRT`
+     via `abort()`, called from a `write()` inside `libzpool.so` — this
+     is `libspl_backtrace()`'s own signal handler doing its
+     async-signal-safe `write(2)` dump of the crash backtrace (the same
+     text already seen via dmesg: `dbuf_destroy` -> `brt_vdevs_free`/
+     `ddt_unload` -> ...) before calling `abort()` to terminate
+     cleanly. All 100 threads in the core show the identical abort()
+     chain (not the original SIGSEGV's frame), and build-id mismatches
+     blocked deeper unwinding through the signal trampoline — no new
+     information for cluster 4 beyond what dmesg already gave, but a
+     useful confirmation that the capture infrastructure works and
+     that the "print backtrace via write(), then abort()" model is
+     exactly what's happening.
+     **Not yet done**: an actual fix. The right fix is almost certainly
+     somewhere in ksh93's `stak`/`nv_name`/variable-scope handling
+     (upstream `ksh93` project, not this repo — this is a shell bug,
+     not a ZFS bug), and pinning down *which* variable and *which*
+     stak-invalidating operation precedes the bad export would need
+     either a live debugger catching it in the act (still not achieved
+     locally) or a closer read of `sh_envgen`/`staknam`/`nv_name`'s
+     interaction with `stakset`/`stakinstall` in the ksh93 source.
+     Given this is upstream `ksh93`'s bug, not `openzfs/zfs`'s, the
+     actionable next step for *this* project is probably just to
+     report it to the `ksh93` project with this exact analysis, rather
+     than attempt a fix here.
 6. **Cluster 6 triage, 2026-08-23** — went through the full original
    list. Methodology note that applies to all of this: local `-t <path>`
    runs default to root; several `cli_user/*` tests need `-u zfs`

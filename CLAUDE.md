@@ -559,9 +559,14 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     failing on real CI even after every branch above merges, since
     this fork's CI builds ksh93 from plain upstream `1.0`, which
     doesn't have the fix.
-  - Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) remains the only
-    failure class with **no fix in hand at all** — see cluster 4 in
-    `claude-notes/INVESTIGATIONS.md`.
+  - **Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) root cause
+    confirmed 2026-08-26** — a real heap-use-after-free race between
+    `brt_vdevs_free()`'s dnode release on the main thread and a
+    taskq thread's `dnode_buf_evict_async()` freeing the same dnode
+    buffer concurrently, reproduced twice locally under ASAN with a
+    full report. Still the only failure class with **no fix in
+    hand** — see cluster 4 in `claude-notes/INVESTIGATIONS.md` for
+    the full mechanism and stack traces.
   - Full annotated mapping of one specific real-CI run's failures to
     all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
     (dated snapshot, already going stale as the three open PRs above

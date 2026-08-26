@@ -329,6 +329,96 @@ config, not a shared runner limitation.
      plausibly a genuine current CI issue too — but it's a kernel-feature
      question, not an Alpine/musl portability one, so it's outside this
      project's scope. Noted, not investigated further.
+   - **ROOT CAUSE CONFIRMED (2026-08-26), via a local ASAN build after
+     the "stop chasing local repro" call above — revisited when a
+     targeted real-CI diagnostic run (see below) showed the crash
+     isn't actually rare at all.** Two threads: (1) a fresh CI
+     diagnostic branch (`claude/combined-review-7-cluster4-diag`,
+     off `combined-review-6-saveenv-fix`) restricted the matrix to
+     `alpine3-24` only, ran just the `block_cloning`/`dedup`/
+     `alloc_class`/`gang_blocks` groups repeated via `-I`, and
+     disabled `zdb`'s own `sig_handler()` (`cmd/zdb/zdb.c`) — it
+     re-raises the caught signal after printing its own backtrace,
+     which meant the one real CI core captured back on 2026-08-24
+     (`core.zdb.10856`) showed `sig_handler()`'s/`raise()`'s own
+     stack, not the original fault, explaining why it "added little
+     beyond confirming the already-known mechanism" per that
+     writeup. (2) In parallel, a local `--enable-asan --enable-ubsan`
+     rebuild (uncommitted local reconfigure, never part of any
+     branch) ran the same test groups in a loop.
+     **First real-CI run (`-I 20`, run `32993678233`) showed the
+     crash is not rare on real CI hardware at all**: roughly half of
+     every test in `block_cloning`/`dedup` FAILed within the very
+     first iteration on both `vm1`/`vm2`, all with the identical
+     `Memory fault` in `get_same_blocks`/`log_must zdb` signature
+     (confirmed via the run's downloaded artifact — every single one
+     of ~39 FAILs was `zdb` itself segfaulting, no unrelated
+     failures). This finally squares the "cores likely matter"
+     theory from 2026-08-24 with reality: it was never a
+     hundreds-of-attempts-rare race, just one that essentially never
+     fires on this dev VM's 16 idle cores. Cancelled that run early
+     (20 iterations of a now-clearly-frequent crash was pure waste)
+     and found two more gaps before the numbers were usable: sudo
+     (1.9.17) unconditionally zeros the *soft* `RLIMIT_CORE` of any
+     command it runs regardless of `core_pattern` (confirmed via
+     `strace`: `prlimit64(0, RLIMIT_CORE, NULL, {rlim_cur=0,
+     rlim_max=RLIM64_INFINITY})`) — fixed by having
+     `test-runner.py.in`'s `update_cmd_privs()` wrap the privileged
+     command in a shell that raises its own soft limit back to
+     unlimited before `exec`ing (allowed since sudo leaves the hard
+     limit alone); and even with real cores landing (a `-I 3` run,
+     `32997899467`, confirmed 30+ genuine `core.zdb.<pid>` files on
+     `vm1` alone via the "Prepare artifacts" step log), every single
+     one failed retrieval with `scp: remote open ...: Permission
+     denied` — cores are written root-owned `0600` (crashes happen
+     as root) but `qemu-7-prepare.sh` pulls them back as the
+     unprivileged `zfs` user, fixed with a `sudo chmod 644
+     /var/tmp/core.*` right after the test run, still as root.
+     **The local ASAN build reproduced it independently, twice, with
+     a full report, before the CI fix even needed to prove itself**:
+
+     ```
+     AddressSanitizer: heap-use-after-free
+     READ of size 8 in zrl_owner (module/zfs/zrlock.c:170)
+       dnode_rele_and_unlock (module/zfs/dnode.c:1795)
+       dbuf_destroy -> dbuf_destroy (recursive, dbuf.c:3367 / 3397)
+       brt_vdevs_free (module/zfs/brt.c:851)
+       brt_unload -> spa_unload -> spa_evict_all -> spa_fini -> kernel_fini
+     freed by a taskq worker thread in
+       dnode_buf_evict_async (module/zfs/dnode.c:1393)
+     ```
+
+     Both hits (`block_cloning_clone_mmap_cached`,
+     `block_cloning_replay_encrypted`, ~10 local iterations apart)
+     show the byte-for-byte identical stack, same file/line numbers
+     throughout, different addresses/threads — this is the exact
+     mechanism theorized on 2026-08-24 ("a rare race between BRT/DDT's
+     held-dnode teardown and something else touching the same dbuf
+     around the same time — a background ARC/dbuf-cache eviction
+     thread being the most likely suspect, not yet checked"), now
+     directly proven rather than inferred from static analysis: the
+     main thread's `brt_vdevs_free()` releases BRT's last hold on a
+     dnode via `dnode_rele_and_unlock()`, which calls `zrl_owner()`
+     on that dnode's zrlock — but a taskq thread running
+     `dnode_buf_evict_async()` can free the underlying dnode buffer
+     (allocated back in `dsl_pool_init` at pool load, via
+     `dmu_objset_open_impl`) concurrently, so the read lands in
+     already-freed heap memory. This is precisely the hazard
+     `dnode_rele_and_unlock()`'s own comment warns about
+     ("releasing the last hold could result in the dnode's parent
+     dbuf evicting its dnode handles ... must first drop the dnode
+     handle") — `brt_vdevs_free()`'s hold/release sequencing doesn't
+     actually guard against it.
+     **Not yet done**: an actual fix, and cross-validating against a
+     real CI core (musl/production build, not this ASAN-instrumented
+     local one) from the corrected `-I 1` run
+     (`claude/combined-review-7-cluster4-diag`) — check
+     `gh run list --repo m68k-io/zfs --branch
+     claude/combined-review-7-cluster4-diag` for the outcome next
+     session if not already known. Given this is a real cross-thread
+     reference-counting race in core BRT teardown logic, any fix
+     needs real scrutiny before landing — see the "never break other
+     platforms" working principle in `CLAUDE.md`.
 5. **musl `SIGILL` in `ld-musl-x86_64.so.1`** — `zpool_iostat`/
    `zpool_status` `-c` (custom command) variants and their plain
    `_005_pos`/`_003_pos` siblings crash with `trap invalid opcode` /

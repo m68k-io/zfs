@@ -535,3 +535,35 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   confirmed the actual point of the switch: `modprobe scsi_debug
   dev_size_mb=64` now creates a real synthetic disk (`CONFIG_SCSI_DEBUG
   =m` live), which it could not on `linux-virt`.
+- **PR tracker (2026-08-26)** — every `claude/*` fix branch's upstream
+  status as of this writing (see `claude-notes/BRANCHES.md` for the
+  per-branch technical detail; this is just the submission status):
+  - **Merged**: `alpine_ci_deps` (`openzfs/zfs#18988`), `mmp`
+    (`#18979`), `linux-stable-kernel` (`#18980`), `history_uncompress`
+    (`#18981`).
+  - **Closed/withdrawn**: `get_prop_empty_value` (`#18983` — no
+    confirmed real trigger, see cluster 6 above).
+  - **Open**: `getopt_permute` / `mmp_write_uberblocks` (`#18994`),
+    `procfs_stale_read_portable` (`#18998`), `user_namespace`
+    (`#18999`), `exec_001_pos_multicall` (`#19000`).
+  - **No PR yet**: `mkbusy_kill_race`, `send_progress_race`,
+    `lzc_send_wrapper_splice_race`.
+  - **Cluster 5's real fix (`sh.save_env` dangling pointer) lives on
+    the sibling `~/Development/ksh` fork**, not this repo — see that
+    project's own `CLAUDE.md`. Two clean, independent, upstream-ready
+    branches exist there (`claude/upstream-save-env-fix`,
+    `claude/upstream-staknam-fix`), confirmed via real CI to fully
+    resolve cluster 5, but **not yet submitted to `ksh93/ksh`**
+    (deliberately deferred). Until that lands, `zpool_add_001_neg`,
+    `zpool_create_001_neg`, and `zfs_list_001/003/007_pos` will keep
+    failing on real CI even after every branch above merges, since
+    this fork's CI builds ksh93 from plain upstream `1.0`, which
+    doesn't have the fix.
+  - Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) remains the only
+    failure class with **no fix in hand at all** — see cluster 4 in
+    `claude-notes/INVESTIGATIONS.md`.
+  - Full annotated mapping of one specific real-CI run's failures to
+    all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
+    (dated snapshot, already going stale as the three open PRs above
+    resolve — re-check PR state before trusting it, per the note-taking
+    convention above).

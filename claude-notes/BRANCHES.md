@@ -84,8 +84,19 @@ underlying root-cause analysis behind each fix.
     resolves `touch`/`chmod` through the `busybox` symlink to the
     `/bin/coreutils` multi-call binary, losing the `argv[0]` BusyBox uses
     to pick the applet ("unknown program"). Fix drops the `readlink -f`.
+    Traced the original `readlink -e $(which touch)` back to this
+    test's 2018 introduction (`0e85048f5`) — no comment, no rationale
+    ever given; confirmed via `user_ns_exec.c` (runs commands via a
+    real `/bin/sh -c` inside the new namespace, no raw `execve` that
+    would need a pre-resolved path) that it was never load-bearing,
+    just unexamined defensive boilerplate carried through a 2022
+    `which`→`command -v` refactor. **PR `openzfs/zfs#18999`, open
+    2026-08-26.**
   - `claude/getopt_permute` (`054846daf`, new 2026-08-23, found while
-    validating `claude/mmp`) — glibc's `getopt()` permutes `argv` by
+    validating `claude/mmp`). **PR `openzfs/zfs#18994`, open
+    2026-08-26, framed as "essentially a no-op for all the other
+    distributions" since glibc permutes either way.** — glibc's
+    `getopt()` permutes `argv` by
     default (a GNU extension), reordering flags to the front regardless
     of position; musl's `getopt()` is strict POSIX and stops parsing at
     the first non-option argument. `mmp_write_uberblocks.ksh`'s zinject
@@ -162,8 +173,8 @@ underlying root-cause analysis behind each fix.
     and switches extlinux's default kernel accordingly. See cluster 7
     above for the full verification chain and what's still unconfirmed
     (`update-extlinux` itself, and a full real-CI boot).
-  - `claude/mkbusy_kill_race` (`9036c2fe9`, new 2026-08-23, cluster 6) —
-    `mkbusy` daemonizes and gets reparented to init; `zfs_destroy_001_
+  - `claude/mkbusy_kill_race` (`9036c2fe9`, new 2026-08-23, cluster 6).
+    **No PR yet.** — `mkbusy` daemonizes and gets reparented to init; `zfs_destroy_001_
     pos`/`_005_neg` killed it and immediately checked `pgrep -fl mkbusy`
     with zero delay, racing init's reaping of the dead child. Added
     `kill_mkbusy()` (kill + poll up to 5s) to `zfs_destroy_
@@ -221,9 +232,11 @@ underlying root-cause analysis behind each fix.
     on the new base before committing. Superseded as the *root-cause*
     fix by `claude/lzc_send_wrapper_splice_race` below, but still a
     valid, independent, harmless improvement in its own right.
+    **No PR yet.**
   - `claude/lzc_send_wrapper_splice_race` (`1c4bb02cc`, new
     2026-08-23, the real root cause of the same bug as
-    `claude/send_progress_race` above) — `lzc_send_wrapper()`'s
+    `claude/send_progress_race` above). **No PR yet.** —
+    `lzc_send_wrapper()`'s
     internal `send_worker()` relay thread `splice()`s into the
     caller's destination fd using an implicit, shared kernel file
     position, which races with callers (like `estimate_size()`) that
@@ -250,19 +263,38 @@ underlying root-cause analysis behind each fix.
     get`/`zpool get` actually printing nothing. User is closing
     `openzfs/zfs#18983` rather than carry a defensive check with no
     real trigger behind it.
-  - `claude/procfs_stale_read_portable` (`b6f387b30`, new 2026-08-24,
-    a quick triage pass) — `procfs_list_stale_read` grepped `cat`'s
-    stderr for the literal string `"Input/output error"` (GNU
-    coreutils' wording); Alpine's `cat` says `"I/O error"` instead,
-    so the grep never matched regardless of whether the actual stale-
-    read behavior was correct. Checks `cat`'s exit status instead —
-    portable, since a nonzero exit on `EIO` is guaranteed where the
-    exact message text isn't. Verified directly against the real
+  - `claude/procfs_stale_read_portable` (`a947d314e` as of
+    2026-08-25, superseding `b6f387b30`) — `procfs_list_stale_read`
+    grepped `cat`'s stderr for the literal string
+    `"Input/output error"` (GNU coreutils' wording); Alpine's `cat`
+    says `"I/O error"` instead, so the grep never matched regardless
+    of whether the actual stale-read behavior was correct.
+    **First attempt (`b6f387b30`) checked `cat`'s exit status
+    instead of grepping at all — caught as a real regression in test
+    precision** (the original piped into `grep`, so the pipeline's
+    exit status was grep's, not cat's; the original test never
+    actually checked cat's own exit code, only that stderr matched
+    that specific text — switching to a bare exit-status check
+    widened the assertion to accept *any* `cat` failure, not
+    specifically EIO). Corrected to `grep -E "Input/output
+    error|I/O error"` instead, restoring the original specificity
+    while covering both known wordings — this test is Linux-only
+    (`:Linux` tag in `linux.run`), so GNU coreutils (all glibc
+    distros) and Alpine's coreutils package are the complete set for
+    this suite's CI matrix. Verified directly against the real
     kernel module and real `/proc/spl/kstat/zfs/<pool>/txgs`, both
-    scenarios the test exercises.
+    scenarios the test exercises, plus a synthetic `cat` shell
+    function confirming the regex matches both wordings and rejects
+    an unrelated failure (e.g. permission denied). **PR
+    `openzfs/zfs#18998`, open 2026-08-26.**
   - `claude/exec_001_pos_multicall` (`855033220`, new 2026-08-24,
     same quick triage pass) — see cluster 1 (BusyBox/multi-call
-    applet dispatch) above for the full story.
+    applet dispatch) above for the full story. `myls`'s naming
+    traced back to the original 2015 illumos test-suite port
+    (`6bb24f4dc`) — no platform-specific reason, illumos/Solaris has
+    no multi-call-binary dispatch, so the name never mattered on any
+    platform this test was ever tested against. **PR
+    `openzfs/zfs#19000`, open 2026-08-26.**
 
   Next for these thirteen: the user submits them upstream independently
   (each is small/targeted enough to go as its own PR, matching the

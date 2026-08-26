@@ -586,13 +586,20 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     currently-unmerged real branch (the four open-PR ones below, the
     three no-PR-yet ones, and the new `dnode_rele_uaf` fix) onto the
     rebased `baseline`. All cherry-picks applied clean, no conflicts.
-    Individual branches (`getopt_permute`, `procfs_stale_read_portable`,
-    `user_namespace`, `exec_001_pos_multicall`, `mkbusy_kill_race`,
-    `send_progress_race`, `lzc_send_wrapper_splice_race`) were **not**
-    individually rebased this round — `combined-review-9` cherry-picks
-    from their existing (pre-rebase) tips, matching how earlier
-    `combined-review` branches worked; worth doing if any of them
-    needs a fresh rebase before real submission.
+    **Update, same session**: the seven individual branches
+    (`getopt_permute`, `procfs_stale_read_portable`, `user_namespace`,
+    `exec_001_pos_multicall`, `mkbusy_kill_race`, `send_progress_race`,
+    `lzc_send_wrapper_splice_race`) were rebased onto the new
+    `baseline` too, all clean (each collapsed to its single real
+    commit, same as the 2026-08-24 rebase round), force-with-leased.
+    `combined-review-9` was then rebuilt from their fresh tips
+    (deleted and recreated, same 8-patch cherry-pick as before). Every
+    one of these pushes (7 individual branches + the rebuild) triggered
+    a real CI run as usual; **per explicit instruction this round, all
+    were cancelled immediately** via `gh run cancel` (confirmed via
+    `gh run list` showing none left `in_progress`/`queued`) — same kind
+    of deliberate one-off deferral as the 2026-08-24 16-run cancellation
+    above, not a standing policy change.
   - Full annotated mapping of one specific real-CI run's failures to
     all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
     (dated snapshot, already going stale as the three open PRs above

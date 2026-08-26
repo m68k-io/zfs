@@ -338,11 +338,15 @@ underlying root-cause analysis behind each fix.
   `exec_001_pos_multicall`), the three no-PR-yet branches
   (`mkbusy_kill_race`, `send_progress_race`,
   `lzc_send_wrapper_splice_race`), and the new `dnode_rele_uaf` fix.
-  All eight cherry-picks applied clean, no conflicts. This round
-  cherry-picked from each branch's existing (pre-rebase) tip rather
-  than first rebasing each individual branch onto the new `baseline` —
-  matches how earlier `combined-review` branches worked, but means
-  those four open-PR branches themselves are still based on the old
-  `baseline`/`master`; rebase them individually first if a fresh
-  submission needs them current.
+  All eight cherry-picks applied clean, no conflicts.
+
+  **Update, same session**: all seven individual branches were then
+  also rebased onto the new `baseline` (each collapsed to its single
+  real commit, clean, force-with-leased), and `combined-review-9` was
+  deleted and rebuilt from their fresh tips — so every branch listed
+  above is now current against `master`/`baseline`, not just
+  `combined-review-9`. Every push in this round (7 rebases + the
+  rebuild) triggered a real CI run as usual; all were cancelled
+  immediately per explicit instruction, a one-off deferral matching
+  the 2026-08-24 16-run cancellation, not a standing policy.
 

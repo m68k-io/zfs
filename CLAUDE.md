@@ -9,6 +9,35 @@ tracks upstream `master`.
 
 ## Working principles
 
+- **Note-taking: keep `CLAUDE.md` trimmed to current status; new
+  investigation/history/reports go in `claude-notes/`.** This file
+  regrew to 1776 lines once before (split out 2026-08-26, see
+  `claude-notes/INVESTIGATIONS.md`'s intro for the full rationale) by
+  letting historical narrative accumulate at the bottom under the
+  frequently-read status section. Going forward:
+  - A **new failure cluster's root-cause writeup** (the kind of deep,
+    multi-paragraph investigation clusters 1-7 got) is an addition to
+    `claude-notes/INVESTIGATIONS.md`, not `CLAUDE.md` — even if the
+    investigation happens in a session focused on "current status."
+  - A **new `claude/*` fix branch** gets its entry in
+    `claude-notes/BRANCHES.md`, not `CLAUDE.md`.
+  - A **one-off real-CI run's pass/fail analysis** (mapping failures to
+    known fixes/clusters, the kind of thing `CI-RUN-2026-08-25-master.md`
+    is) gets its own new dated file,
+    `claude-notes/CI-RUN-<YYYY-MM-DD>-<short-description>.md` — never
+    appended to an existing report (those are point-in-time snapshots,
+    not logs) and never folded into `CLAUDE.md` (it goes stale as fixes
+    land, which is fine for a dated snapshot but wrong for an evergreen
+    file).
+  - `CLAUDE.md` itself only gets: updates to "Current status / next
+    steps" (edit in place, don't just append — retire/trim entries once
+    they're resolved and reflected in `claude-notes/`), corrections to
+    working principles, and genuinely new environment/build-setup facts.
+  - New files under `claude-notes/` need no `.gitignore` change (the
+    whole directory is allowlisted) — but a brand-new *root-level* meta
+    file would, same as `CLAUDE.md` was before this convention existed;
+    prefer putting it in `claude-notes/` instead of adding another root
+    exception.
 - **Small, targeted fixes.** One narrow cause per branch/commit, same
   shape as the existing `claude/*` branches (one file, one root cause,
   one commit each).

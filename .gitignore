@@ -14,6 +14,7 @@
 *
 
 !.github
+!claude-notes
 !cmd
 !config
 !contrib
@@ -28,6 +29,7 @@
 !udev
 
 !.github/**
+!claude-notes/**
 !cmd/**
 !config/**
 !contrib/**
@@ -49,7 +51,6 @@
 !AUTHORS
 !autogen.sh
 !CLAUDE.md
-!CI-RUN-2026-08-25-master.md
 !CODE_OF_CONDUCT.md
 !configure.ac
 !copy-builtin

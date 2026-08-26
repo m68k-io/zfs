@@ -301,3 +301,48 @@ underlying root-cause analysis behind each fix.
   "small, targeted fixes" principle). Not this fork's job to merge or
   combine them.
 
+## Update (2026-08-26): fork resync, branch cleanup, cluster 4 fix
+
+- `claude/alpine_ci_deps` merged upstream as `openzfs/zfs#18988`
+  (2026-08-25) — deleted, local + `origin`.
+- `origin/master` confirmed byte-identical to `openzfs/zfs` master
+  (`998eca979`, direct SHA comparison, not just fork-sync trust).
+  Local `master` fast-forwarded, `baseline` rebased onto it (trivial:
+  the only thing on top of `master` is the permanent `**DEBUG**`
+  commit) and force-with-leased to `origin/baseline`.
+- All eight `combined-review-*` staging branches (`2` through
+  `8-cluster4-fix`) deleted, local + `origin` — each was a throwaway
+  validation branch for a specific past investigation round (cluster
+  5's ksh check, the save_env fix, cluster 4's diagnostic work) and
+  had already served its purpose. Replaced by `claude/combined-review-9`
+  (below).
+- **New fix branch: `claude/dnode_rele_uaf`** — resolves cluster 4 (the
+  zdb/dbuf teardown crash, see `INVESTIGATIONS.md` for the full
+  root-cause narrative and validation detail). One-line summary:
+  `dnode_rele_and_unlock()`'s `ZFS_DEBUG`-only assert read
+  `dnh->dnh_zrlock` after the dnode's parent block could already have
+  been concurrently freed by another thread's dbuf eviction of a
+  *different* dnode sharing the same block — a real heap-use-after-free,
+  reproduced under ASAN and cross-validated against 16 real CI cores
+  (all crashing at the identical instruction offset) plus a clean
+  74/74-PASS real-CI run of the same test groups with the fix applied.
+  `#ifdef ZFS_DEBUG` only; moves an unsafe read earlier, doesn't change
+  non-debug/production code paths. **Not yet submitted upstream** — a
+  real core-code (not test-portability) fix, so this one needs the
+  "never break other platforms" scrutiny the working principles call
+  for, and this VM can't verify the FreeBSD/glibc legs locally.
+- **New combined-review branch: `claude/combined-review-9`**, built by
+  cherry-picking every currently-unmerged real branch onto the rebased
+  `baseline` — the four open-PR branches (`getopt_permute`,
+  `procfs_stale_read_portable`, `user_namespace`,
+  `exec_001_pos_multicall`), the three no-PR-yet branches
+  (`mkbusy_kill_race`, `send_progress_race`,
+  `lzc_send_wrapper_splice_race`), and the new `dnode_rele_uaf` fix.
+  All eight cherry-picks applied clean, no conflicts. This round
+  cherry-picked from each branch's existing (pre-rebase) tip rather
+  than first rebasing each individual branch onto the new `baseline` —
+  matches how earlier `combined-review` branches worked, but means
+  those four open-PR branches themselves are still based on the old
+  `baseline`/`master`; rebase them individually first if a fresh
+  submission needs them current.
+

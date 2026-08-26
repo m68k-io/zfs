@@ -559,14 +559,40 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     failing on real CI even after every branch above merges, since
     this fork's CI builds ksh93 from plain upstream `1.0`, which
     doesn't have the fix.
-  - **Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) root cause
-    confirmed 2026-08-26** — a real heap-use-after-free race between
-    `brt_vdevs_free()`'s dnode release on the main thread and a
-    taskq thread's `dnode_buf_evict_async()` freeing the same dnode
-    buffer concurrently, reproduced twice locally under ASAN with a
-    full report. Still the only failure class with **no fix in
-    hand** — see cluster 4 in `claude-notes/INVESTIGATIONS.md` for
-    the full mechanism and stack traces.
+  - **Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) fixed 2026-08-26**
+    — root cause confirmed via a local ASAN build (real
+    heap-use-after-free, two independent hits, identical stack both
+    times), then cross-validated against 16 real cores pulled from an
+    unpatched real-CI run (all 16 crashed at the identical instruction
+    offset) and a patched real-CI run of the same test groups
+    (74/74 PASS, 0 crashes, vs. ~50% FAIL/16-crash rate without the
+    fix). Fix branch: `claude/dnode_rele_uaf`. **Not yet submitted
+    upstream** — this is a real core-code fix (not a test-portability
+    one), so give it the "never break other platforms" scrutiny above
+    before submitting; this VM can't verify non-Alpine legs locally,
+    only via real CI. See cluster 4 in `claude-notes/INVESTIGATIONS.md`
+    for the full mechanism, stack traces, and validation detail.
+  - **Fork synced and branches cleaned up again (2026-08-26).**
+    `origin/master` confirmed byte-identical to `openzfs/zfs`'s master
+    tip (`998eca979`) via direct SHA comparison; fast-forwarded local
+    `master` (3 commits), rebased `baseline` onto it (trivial — only
+    the permanent `**DEBUG**` commit sits on top of `master` now) and
+    force-with-leased to `origin/baseline`. `claude/alpine_ci_deps`
+    (merged as `#18988`) deleted, local + `origin`. All eight
+    `combined-review-*` staging branches (`2` through
+    `8-cluster4-fix`, the last two being this session's cluster-4
+    diagnostic branches) deleted too, local + `origin` — superseded by
+    a fresh `claude/combined-review-9`, built by cherry-picking every
+    currently-unmerged real branch (the four open-PR ones below, the
+    three no-PR-yet ones, and the new `dnode_rele_uaf` fix) onto the
+    rebased `baseline`. All cherry-picks applied clean, no conflicts.
+    Individual branches (`getopt_permute`, `procfs_stale_read_portable`,
+    `user_namespace`, `exec_001_pos_multicall`, `mkbusy_kill_race`,
+    `send_progress_race`, `lzc_send_wrapper_splice_race`) were **not**
+    individually rebased this round — `combined-review-9` cherry-picks
+    from their existing (pre-rebase) tips, matching how earlier
+    `combined-review` branches worked; worth doing if any of them
+    needs a fresh rebase before real submission.
   - Full annotated mapping of one specific real-CI run's failures to
     all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
     (dated snapshot, already going stale as the three open PRs above

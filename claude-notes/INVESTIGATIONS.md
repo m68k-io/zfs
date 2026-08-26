@@ -409,16 +409,118 @@ config, not a shared runner limitation.
      dbuf evicting its dnode handles ... must first drop the dnode
      handle") — `brt_vdevs_free()`'s hold/release sequencing doesn't
      actually guard against it.
-     **Not yet done**: an actual fix, and cross-validating against a
-     real CI core (musl/production build, not this ASAN-instrumented
-     local one) from the corrected `-I 1` run
-     (`claude/combined-review-7-cluster4-diag`) — check
-     `gh run list --repo m68k-io/zfs --branch
-     claude/combined-review-7-cluster4-diag` for the outcome next
-     session if not already known. Given this is a real cross-thread
-     reference-counting race in core BRT teardown logic, any fix
-     needs real scrutiny before landing — see the "never break other
-     platforms" working principle in `CLAUDE.md`.
+     **FIXED and cross-validated against real CI (2026-08-26, same
+     day).** The corrected `-I 1` diagnostic run
+     (`claude/combined-review-7-cluster4-diag`, run `33001855475`)
+     landed 16 real `core.zdb.<pid>` files (the earlier permission
+     bug — cores land root-owned `0600`, `qemu-7-prepare.sh` pulls
+     them back as the unprivileged `zfs` user — was fixed first).
+     Every one of the 16 crashed at the identical instruction offset
+     (`0x24b800` in `libzpool.so.7.0.0`), matching the original
+     2026-08-23/24 dmesg captures exactly — confirmed via `dmesg`'s
+     raw segfault lines across the whole run
+     (`grep -rh "segfault at" | sed -E 's/^[0-9T:.,+-]+ //' | sort |
+     uniq`), not just one core. A `gdb`/`addr2line` attempt to
+     symbolize one core against a freshly-built matching-commit
+     binary hit the same build-id-mismatch limitation the 2026-08-24
+     session ran into (resolved to a nonsensical `zio_inject_fault`)
+     — not trusted, but unnecessary given the offset consistency
+     above plus the ASAN mechanism below already fully explain it.
+
+     **Root cause, confirmed via a local `--enable-asan
+     --enable-ubsan` rebuild** (uncommitted local reconfigure of
+     `zdb`/`libzpool`, never part of any branch — `--enable-asan`
+     already existed in this tree's `configure`, just never used
+     here before): two independent hits
+     (`block_cloning_clone_mmap_cached`,
+     `block_cloning_replay_encrypted`, ~10 iterations apart) with
+     **byte-for-byte identical stacks**:
+
+     ```
+     AddressSanitizer: heap-use-after-free
+     READ of size 8 in zrl_owner (module/zfs/zrlock.c:170)
+       dnode_rele_and_unlock (module/zfs/dnode.c:1795)
+       dbuf_destroy -> dbuf_destroy (recursive, dbuf.c:3367 / 3397)
+       brt_vdevs_free (module/zfs/brt.c:851)
+       brt_unload -> spa_unload -> spa_evict_all -> spa_fini -> kernel_fini
+     freed by a taskq worker thread in
+       dnode_buf_evict_async (module/zfs/dnode.c:1393)
+     ```
+
+     `dnode_rele_and_unlock()`'s `ZFS_DEBUG`-only assert
+     (`ASSERT(refs > 0 || zrl_owner(&dnh->dnh_zrlock) != curthread)`)
+     read `dnh->dnh_zrlock` *after* `mutex_exit(&dn->dn_mtx)` —
+     directly contradicting the comment two lines above it ("dnode
+     could get destroyed at this point, so don't use it anymore").
+     `dnh` (the dnode's handle) lives in the `dnode_children_t` array
+     attached to the dnode's shared parent block dbuf, and is freed
+     *all at once, for every dnode slot in that block* by
+     `dnode_buf_evict_async()` when that dbuf's own refcount drops to
+     zero — which the trace shows can happen due to a **different**
+     dnode's hold in the same block being released concurrently on
+     another thread, independent of this dnode's own hold count. If
+     that eviction runs between this thread's `mutex_exit()` and its
+     use of `dnh`, the assert dereferences already-freed memory. This
+     is exactly the mechanism theorized on 2026-08-24 ("a rare race
+     between BRT/DDT's held-dnode teardown and something else
+     touching the same dbuf... a background ARC/dbuf-cache eviction
+     thread being the most likely suspect, not yet checked"), now
+     directly proven with full allocation/free provenance rather than
+     inferred from static analysis alone.
+
+     **Fix** (`claude/dnode_rele_uaf`): capture the zrlock-ownership
+     check while `dn_mtx` is still held and `dnh` is guaranteed live
+     (per the "Get while the hold prevents the dnode from moving"
+     comment a few lines up) — at that point this dnode's own hold,
+     and the `dbuf_add_ref(db, dnh)` reference it carries (added when
+     the hold was first acquired in `dnode_hold_impl()`), is still
+     outstanding, which provably keeps the parent block's `dnh` alive
+     regardless of what any other thread/dnode sharing that block is
+     doing concurrently. `#ifdef ZFS_DEBUG` only — no non-debug/
+     production behavior changes either way, so this is a
+     conservative fix for the *proven* crash site; whether the same
+     race could independently threaten the later
+     `dbuf_rele_and_unlock(db, dnh, evicting)` call a few lines down
+     was considered but not confirmed one way or the other (no crash
+     evidence points there).
+
+     **Validated**: local ASAN, 15 iterations x 2 of the two tests
+     that crashed above — 60/60 PASS, 0 crashes (was 2/62 crashes
+     before the fix). Real CI (`claude/combined-review-8-cluster4-fix`
+     -> superseded by `claude/dnode_rele_uaf`, run `33003416194`),
+     same `block_cloning`/`dedup`/`alloc_class`/`gang_blocks` test
+     groups that FAILed at roughly 50% on the unpatched branch — 74/74
+     PASS, 0 crashes, 0 core files, 0 `segfault` mentions anywhere in
+     the logs.
+
+     **Open question**: why real CI hits this so much more readily
+     than this dev VM (essentially a coin-flip on the very first
+     real-CI attempt, vs. needing ASAN's own allocation-overhead
+     perturbation to catch it at all locally across ~185+ prior
+     non-ASAN attempts). Leading theory, not confirmed: the dbuf
+     eviction taskq always has exactly one worker thread
+     (`taskq_create("dbu_evict", 1, ...)`, unscaled by CPU count — 
+     checked directly in `module/zfs/dbuf.c`), so the race is always
+     "one main thread vs. one dedicated evictor," and what determines
+     a collision is purely whether the scheduler preempts the main
+     thread inside the narrow unprotected window — far more likely on
+     real CI's 2-4 contended vCPUs than this VM's 16 idle ones, where
+     both threads usually just run to completion uninterrupted.
+     Separately, this cluster has only ever been observed on musl
+     (Alpine); the leading theory there is that glibc's per-thread
+     tcache keeps freed memory thread-local and unreused for a while,
+     so the same cross-thread stale read likely still happens on
+     glibc but silently reads still-coherent old bytes instead of
+     corrupted ones — meaning the race is probably universal, not
+     Alpine-specific, and glibc's allocator just happens to usually
+     mask the symptom. Neither theory independently confirmed.
+
+     **Not yet done**: submitting `claude/dnode_rele_uaf` upstream.
+     Given this is a real cross-thread reference-counting race in
+     core BRT/DDT-adjacent teardown logic, it needs real scrutiny
+     before landing — see the "never break other platforms" working
+     principle in `CLAUDE.md`; this VM can't verify the FreeBSD or
+     glibc-distro legs locally, only via real CI.
 5. **musl `SIGILL` in `ld-musl-x86_64.so.1`** — `zpool_iostat`/
    `zpool_status` `-c` (custom command) variants and their plain
    `_005_pos`/`_003_pos` siblings crash with `trap invalid opcode` /

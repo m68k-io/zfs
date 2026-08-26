@@ -599,7 +599,22 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     were cancelled immediately** via `gh run cancel` (confirmed via
     `gh run list` showing none left `in_progress`/`queued`) — same kind
     of deliberate one-off deferral as the 2026-08-24 16-run cancellation
-    above, not a standing policy change.
+    above, not a standing policy change. All 16 of those cancelled runs
+    then deleted from the Actions history via `gh run delete` (per
+    explicit instruction); a 17th cancelled run from earlier the same
+    session (`32993678233`, cancelled by the user directly, not via
+    `gh run cancel`) was deliberately left alone as out of scope for
+    "the ones you just cancelled." Two of the sixteen (`dnode_rele_uaf`'s
+    own first CI run) had already vanished with a 404 by the time of
+    deletion — cancelled runs seem to get garbage-collected fast when
+    killed almost immediately after creation; not something to rely on,
+    `gh run delete` still needed for the rest. Also found and deleted a
+    stale **local-only** branch, `pr-18985` (dated 2026-08-24, predates
+    this session, never pushed to `origin`) — a duplicate of the CDDL
+    boilerplate fix that already landed upstream under a different
+    commit hash and drops out of `baseline` automatically on every
+    rebase; confirmed redundant via `git log master -- <path>` showing
+    the same fix already present before deleting.
   - Full annotated mapping of one specific real-CI run's failures to
     all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
     (dated snapshot, already going stale as the three open PRs above

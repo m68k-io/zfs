@@ -41,10 +41,13 @@ tracks upstream `master`.
 - **Small, targeted fixes.** One narrow cause per branch/commit, same
   shape as the existing `claude/*` branches (one file, one root cause,
   one commit each).
-- **Commit message body lines must be ≤72 chars.** `checkstyle`'s
-  `commitcheck` enforces this and fails the build otherwise (caught this
-  the hard way on `claude/tzdata`, 2026-08-23 — amended to fix). Wrap
-  commit messages accordingly from the start.
+- **Commit message subject line AND body lines must each be ≤72 chars.**
+  `checkstyle`'s `commitcheck` enforces both independently and fails the
+  build otherwise. Caught the body-wrap version the hard way on
+  `claude/tzdata` (2026-08-23); caught the *subject*-length version
+  separately on `claude/ksh_alpine_prebuilt` (2026-08-27, error text is
+  literally `commit subject over 72 characters`) — two distinct checks,
+  don't assume fixing one covers the other. Check both before pushing.
 - **This is meant to land upstream eventually — never break other
   platforms.** Prefer fixing things on the ZTS test-suite side (wrong
   assumption about GNU coreutils/glibc/bash behavior) over touching
@@ -535,148 +538,126 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   confirmed the actual point of the switch: `modprobe scsi_debug
   dev_size_mb=64` now creates a real synthetic disk (`CONFIG_SCSI_DEBUG
   =m` live), which it could not on `linux-virt`.
-- **PR tracker (2026-08-26)** — every `claude/*` fix branch's upstream
+- **PR tracker (2026-08-27)** — every `claude/*` fix branch's upstream
   status as of this writing (see `claude-notes/BRANCHES.md` for the
   per-branch technical detail; this is just the submission status):
-  - **Merged**: `alpine_ci_deps` (`openzfs/zfs#18988`), `mmp`
-    (`#18979`), `linux-stable-kernel` (`#18980`), `history_uncompress`
-    (`#18981`).
-  - **Closed/withdrawn**: `get_prop_empty_value` (`#18983` — no
-    confirmed real trigger, see cluster 6 above).
-  - **Open**: `getopt_permute` / `mmp_write_uberblocks` (`#18994`),
-    `procfs_stale_read_portable` (`#18998`), `user_namespace`
-    (`#18999`), `exec_001_pos_multicall` (`#19000`).
-  - **No PR yet**: `mkbusy_kill_race`, `send_progress_race`,
-    `lzc_send_wrapper_splice_race`.
-  - **Cluster 5's real fix (`sh.save_env` dangling pointer) lives on
-    the sibling `~/Development/ksh` fork**, not this repo — see that
-    project's own `CLAUDE.md`. Two clean, independent, upstream-ready
-    branches existed there (`claude/upstream-save-env-fix`,
-    `claude/upstream-staknam-fix`), confirmed via real CI to fully
-    resolve cluster 5, but **not yet submitted to `ksh93/ksh`**
-    (deliberately deferred).
-    **Combined into a new `zfs` branch (2026-08-27, briefly misnamed
-    `zsh` — typo, renamed same day)**, on the ksh fork: both fix
-    commits cherry-picked onto `ksh93/ksh`'s own `1.0` tip (not `dev`
-    — this fork's ZFS CI pins `1.0` specifically "for a reproducible,
-    stable build", so building `zfs` on top of anything else would
-    introduce unrelated `dev`-vs-`1.0` drift into the comparison).
-    Both cherry-picks applied clean, sanity-built locally
-    (`93u+m/1.0.11-beta+9bcb5762`). Pushed to `origin/zfs` on the ksh
-    fork.
-    **`claude/combined-review-10`** (this repo, off `claude/
-    combined-review-9`) adds one `**DEBUG**` commit on top of the
-    existing 8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine ksh93
-    install to `m68k-io/ksh`'s `zfs` branch content instead of plain
-    upstream, to validate whether cluster 5 is actually resolved when
-    combined with everything else (including cluster 4's fix, now that
-    it has its own real-CI validation too). Per the user's own call,
-    this redirect lives in a DEBUG commit on this fork, not as a
-    permanent change — revert once cluster 5's fix lands in `ksh93/ksh`
-    for real.
-    **First run (`33038768627`, `git clone --branch zfs` + build from
-    source) accidentally cancelled ~2h in (2026-08-27)** — mistakenly
-    judged as "superseded" by a later run testing the same content via
-    a faster install mechanism (see the release note below) without
-    checking how far along it already was; a real ~2 hours of progress
-    lost, noted as a mistake to avoid repeating (check time-invested
-    before cancelling something substantial, don't just reason from
-    "a newer approach exists"). **Real data recovered from the job log
-    before deleting the run**: cancellation happened mid-`Run tests`
-    (not after completion), so the run's own final "Results Summary"
-    is a broken 0/0/0 artifact of the summary script's "VM didn't
-    finish ZTS" reset path — but the raw per-test log lines are real,
-    and confirm all five cluster-5 tests **passed**:
-    `zfs_list_001_pos`, `zfs_list_003_pos`, `zfs_list_007_pos`,
-    `zpool_add_001_neg`, `zpool_create_001_neg` — plus **zero `[FAIL]`
-    lines anywhere** in the ~1395 tests (both VMs combined) that
-    completed before cancellation. Run deleted after extracting this
-    (`gh run delete 33038768627`).
-    **Superseded by a second push (`b639740a8`, still `claude/
-    combined-review-10`)**: replaced the git-clone-and-build step with
-    installing a prebuilt release instead (see "ksh Alpine release"
-    below) — same fix content, much less CI time spent per run. Check
-    `gh run list --repo m68k-io/zfs --branch claude/combined-review-10`
-    for this run's outcome if not already known; given the first run's
-    recovered data, a clean result here is expected, not a first
-    confirmation.
-    **ksh Alpine release**: `m68k-io/ksh` release
-    [`alpine-9bcb5762`](https://github.com/m68k-io/ksh/releases/tag/alpine-9bcb5762)
-    — a manual (not automated-workflow) build of the `zfs` branch,
-    staged exactly as `bin/package install /` would produce (tar of
-    `bin/`, `lib/`, `share/`, `include/`), published after a clean
-    local build and a full passing `sh bin/shtests` regression run (0
-    errors). `qemu-3-deps-vm.sh`'s Alpine leg now does `curl -fsSL
-    .../releases/latest/download/ksh93-alpine3.24-x86_64.tar.gz | sudo
-    tar -xz -C /` instead of cloning+building from source — verified
-    the exact command locally first (replaced this dev VM's own
-    installed `ksh`, confirmed the version string matched). Chose a
-    one-off manual release over an automated build-and-publish
-    workflow, since `zfs` is a small, infrequently-changing branch —
-    rebuild and republish by hand if it ever changes again, or revisit
-    automating it if that turns out to be more often than expected.
-  - **Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) fixed 2026-08-26**
-    — root cause confirmed via a local ASAN build (real
-    heap-use-after-free, two independent hits, identical stack both
-    times), then cross-validated against 16 real cores pulled from an
-    unpatched real-CI run (all 16 crashed at the identical instruction
-    offset) and a patched real-CI run of the same test groups
-    (74/74 PASS, 0 crashes, vs. ~50% FAIL/16-crash rate without the
-    fix). Fix branch: `claude/dnode_rele_uaf`. **Cross-platform
-    scrutiny now done too**: a full 16-platform run on the separate
-    `alex-moch/zfs` final-QA repo plus two 6-platform runs on this
-    fork — 0 cluster-4-signature failures across all 28 platform-legs
-    checked. One unrelated lead not yet confirmed as flaky:
-    `alloc_class_016_pos` FAILed once on `ubuntu26` with a "pool busy"
-    error at cleanup, not cluster 4's signature. **Still not yet
-    submitted upstream** — nothing left blocking it technically, just
-    hasn't been submitted. See cluster 4 in `claude-notes/INVESTIGATIONS.md`
-    for the full mechanism, stack traces, and validation detail.
-  - **Fork synced and branches cleaned up again (2026-08-26).**
-    `origin/master` confirmed byte-identical to `openzfs/zfs`'s master
-    tip (`998eca979`) via direct SHA comparison; fast-forwarded local
-    `master` (3 commits), rebased `baseline` onto it (trivial — only
-    the permanent `**DEBUG**` commit sits on top of `master` now) and
-    force-with-leased to `origin/baseline`. `claude/alpine_ci_deps`
-    (merged as `#18988`) deleted, local + `origin`. All eight
-    `combined-review-*` staging branches (`2` through
-    `8-cluster4-fix`, the last two being this session's cluster-4
-    diagnostic branches) deleted too, local + `origin` — superseded by
-    a fresh `claude/combined-review-9`, built by cherry-picking every
-    currently-unmerged real branch (the four open-PR ones below, the
-    three no-PR-yet ones, and the new `dnode_rele_uaf` fix) onto the
-    rebased `baseline`. All cherry-picks applied clean, no conflicts.
-    **Update, same session**: the seven individual branches
-    (`getopt_permute`, `procfs_stale_read_portable`, `user_namespace`,
-    `exec_001_pos_multicall`, `mkbusy_kill_race`, `send_progress_race`,
-    `lzc_send_wrapper_splice_race`) were rebased onto the new
-    `baseline` too, all clean (each collapsed to its single real
-    commit, same as the 2026-08-24 rebase round), force-with-leased.
-    `combined-review-9` was then rebuilt from their fresh tips
-    (deleted and recreated, same 8-patch cherry-pick as before). Every
-    one of these pushes (7 individual branches + the rebuild) triggered
-    a real CI run as usual; **per explicit instruction this round, all
-    were cancelled immediately** via `gh run cancel` (confirmed via
-    `gh run list` showing none left `in_progress`/`queued`) — same kind
-    of deliberate one-off deferral as the 2026-08-24 16-run cancellation
-    above, not a standing policy change. All 16 of those cancelled runs
-    then deleted from the Actions history via `gh run delete` (per
-    explicit instruction); a 17th cancelled run from earlier the same
-    session (`32993678233`, cancelled by the user directly, not via
-    `gh run cancel`) was deliberately left alone as out of scope for
-    "the ones you just cancelled." Two of the sixteen (`dnode_rele_uaf`'s
-    own first CI run) had already vanished with a 404 by the time of
-    deletion — cancelled runs seem to get garbage-collected fast when
-    killed almost immediately after creation; not something to rely on,
-    `gh run delete` still needed for the rest. Also found and deleted a
-    stale **local-only** branch, `pr-18985` (dated 2026-08-24, predates
-    this session, never pushed to `origin`) — a duplicate of the CDDL
-    boilerplate fix that already landed upstream under a different
-    commit hash and drops out of `baseline` automatically on every
-    rebase; confirmed redundant via `git log master -- <path>` showing
-    the same fix already present before deleting.
+  - **Merged**: `alpine_ci_deps` (`#18988`), `mmp` (`#18979`),
+    `linux-stable-kernel` (`#18980`), `history_uncompress` (`#18981`),
+    `getopt_permute`/`mmp_write_uberblocks` (`#18994`),
+    `procfs_stale_read_portable` (`#18998`, merged as "accept Alpine's
+    EIO error message" — same fix, reworded during review),
+    `user_namespace` (`#18999`), `exec_001_pos_multicall` (`#19000`).
+    Fork's `master` synced and `baseline` rebased onto it (2026-08-27)
+    now that all of these have landed; all eight corresponding
+    `claude/*` branches deleted, local + `origin`.
+  - **Closed/withdrawn**: `get_prop_empty_value` (`#18983`).
+  - **No PR yet**: `dnode_rele_uaf` (cluster 4), `getopt_long_permute`
+    (`zfs_get_006_neg`, new this session), `mkbusy_kill_race`,
+    `send_progress_race`, `lzc_send_wrapper_splice_race`,
+    `ksh_alpine_prebuilt` (new this session — see below; not
+    upstream-submittable as-is since it depends on a personal fork's
+    GitHub release, see its own commit message).
+  - **Cluster 5's real fix lives on the sibling `~/Development/ksh`
+    fork** — see that project's own `CLAUDE.md`. Both fixes
+    (`sh.save_env` dangling pointer, `staknam()` stale `sh.strbuf`
+    pointer) sit on that fork's `zfs` branch, confirmed via real CI to
+    resolve cluster 5, still **not yet submitted to `ksh93/ksh`**
+    (deliberately deferred). **Only the `save_env` fix is load-bearing
+    for CI** — the `staknam` fix was actually disproven as the trigger
+    (deployed alone first, crashes continued identically) and has no
+    reproducer at all, it's real hardening found by static analysis
+    against the documented `sfstruse(3)` contract. Both are still
+    bundled on the `zfs` branch since `staknam`'s fix is harmless to
+    include.
+    **ksh release updated (2026-08-27)**: now publishes three assets
+    per release — dynamic tarball, static tarball, and an `.apk`
+    (recommended: `apk add --allow-untrusted ./ksh93-alpine3.24-
+    x86_64.apk`, cleanly upgradeable/removable unlike a bare tarball
+    extract) — tagged separately for the `1.0` branch (`alpine-1.0-*`,
+    marked *Latest*, what `releases/latest/download/...` resolves to)
+    and `dev` (`alpine-dev-*`, pre-release). The old single-tarball
+    `releases/latest/download/ksh93-alpine3.24-x86_64.tar.gz` URL
+    still resolves correctly under the new release too.
+    **Wired in as a real branch, not a DEBUG commit
+    (2026-08-27)**: `claude/ksh_alpine_prebuilt` permanently swaps
+    `qemu-3-deps-vm.sh`'s Alpine `ksh93` install step from "clone
+    `ksh93/ksh` branch `1.0` and build from source" to installing the
+    prebuilt `.apk`. This was a `**DEBUG**` commit on `claude/
+    combined-review-10` before; promoted to its own real commit since
+    it's a legitimate fix for this fork's own CI, not a throwaway
+    validation hack — see the commit message on that branch for why it
+    still isn't upstream-submittable to `openzfs/zfs` as-is (depends on
+    a personal fork's release).
+  - **Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) fixed 2026-08-26,
+    still validating cross-platform.** Root cause, local ASAN
+    confirmation, and the original 74/74-PASS real-CI validation are
+    unchanged — see `claude-notes/INVESTIGATIONS.md`. Fix branch:
+    `claude/dnode_rele_uaf`, rebased onto the new `baseline`
+    (2026-08-27). Real upstream-matrix run on the separate `alex-moch/
+    zfs` final-QA repo (`33009036571`, `alpine/combined-review`,
+    19-platform matrix): **16/19 platforms passed clean**; 3 failed on
+    infra timeouts, not correctness (`ubuntu22`: `Run tests` timed out
+    at 270 min; `centos-stream9`/`centos-stream10`: `Build modules`
+    timed out at 30 min) — no cluster-4 signature or any other
+    correctness failure in any of the three timeout logs. Still not
+    yet submitted upstream.
+  - **`claude/combined-review-11` (2026-08-27)**: replaces the deleted
+    `combined-review-9`/`-10`. Six commits on the rebased `baseline`:
+    `dnode_rele_uaf`, `getopt_long_permute`, `lzc_send_wrapper_splice_
+    race`, `mkbusy_kill_race`, `send_progress_race`,
+    `ksh_alpine_prebuilt` — every currently-unmerged fix plus the new
+    ksh install branch, all cherry-picked clean. Real-CI results from
+    the deleted `combined-review-10` (extracted before deletion, see
+    `claude-notes/CI-RUN-2026-08-27-combined-review-10.md`) already
+    show clusters 4 and 5 both fully resolved *in combination*: **zero
+    core dumps on Alpine**, every previously-crashing test (`zfs_list_
+    00[137]_pos`, `zpool_add/create_001_neg`, `alloc_class_013_pos`,
+    `block_cloning_copyfilerange*`, ...) passing clean. `-11` itself
+    additionally carries the `getopt_long_permute` fix that `-10`
+    didn't, so `zfs_get_006_neg` should now pass too where `-10`
+    correctly failed it (confirmed separately: `getopt_long_permute`'s
+    own isolated run passed `zfs_get_006_neg`, see the CI-RUN file).
+  - **New, not yet triaged**: `combined-review-10`'s run also showed a
+    cluster of failures — `casenorm/*` (6 tests), `import_rewind_
+    device_replaced`, `refreserv_004_pos`, `send_xdr_encoding/xdr_
+    bookmark_raw_with_write` + `xdr_resume_bookmark_raw_with_write`,
+    `vdev_zaps_007_pos`, `fault/auto_replace_001/002_pos` +
+    `auto_spare_multiple` — that don't match any known cluster.
+    Suspicious pattern: several of these exact same test names failed
+    identically on that run's *FreeBSD* leg too (`import_rewind_
+    device_replaced`, `refreserv_004_pos`, both `xdr_*` tests,
+    `vdev_zaps_007_pos`), despite FreeBSD sharing no code path with
+    Alpine/musl for any of this fork's fixes — points toward generic
+    test flakiness or resource contention under a long multi-VM
+    concurrent run rather than a real per-platform regression, but
+    genuinely not confirmed either way. `fault/auto_replace_*` +
+    `auto_spare_multiple` may just be a `scsi_debug` timing flake
+    (cluster 7's underlying mechanism, already fixed, but the module
+    load/detection race itself was never separately hardened) — also
+    unconfirmed. Worth a dedicated look before assuming either
+    explanation.
   - Full annotated mapping of one specific real-CI run's failures to
     all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
-    (dated snapshot, already going stale as the three open PRs above
-    resolve — re-check PR state before trusting it, per the note-taking
-    convention above).
+    (older, going stale) and `claude-notes/CI-RUN-2026-08-27-
+    combined-review-10.md` (this session's, current as of writing).
+- **Branch/CI hygiene pass (2026-08-27)**: user confirmed all four
+  previously-open PRs (`#18994`, `#18998`, `#18999`, `#19000`) merged
+  and synced this fork's `master`. Rebased `baseline` onto the new
+  `master` (trivial — one commit, the permanent `**DEBUG**` runner-
+  restriction commit). Deleted the four now-merged `claude/*` branches
+  (local + `origin`) after confirming each via `git patch-id` (or, for
+  `procfs_stale_read_portable`, by diffing directly against the merged
+  commit — the review process reworded its commit message and dropped
+  an inline comment, so the patch-id didn't match even though the code
+  change is identical). Rebased the five remaining active fix branches
+  onto the new `baseline`, force-with-leased. Deleted `claude/
+  combined-review-9`/`-10` (superseded by the new `-11`) and 69 stale/
+  orphaned workflow runs on `m68k-io/zfs` (old commits on rebased
+  branches, and runs whose branch no longer exists at all) — `alex-
+  moch/zfs`'s runs were all left alone, nothing there was redundant.
+  Cleaned up 19GB of accumulated ZTS test leftovers from `/var/tmp` on
+  this VM (confirmed first: no mounted ZFS datasets, no imported pools,
+  no attached loop devices, no zfs-related processes — nothing was
+  using any of it). `~/Development/ksh`'s unrelated in-progress
+  `splice_race.c`/kernel-`do_splice()` investigation (modified
+  `CLAUDE.md` + untracked file, see that project) was never touched.

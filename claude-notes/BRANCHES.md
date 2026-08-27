@@ -375,3 +375,82 @@ underlying root-cause analysis behind each fix.
   `gh run list --repo m68k-io/zfs --branch claude/combined-review-10`
   for this run's outcome if not already known.
 
+
+## Update (2026-08-27): PR batch merged, branches/CI cleaned up, ksh install promoted to a real branch
+
+- **Four PRs merged**: `getopt_permute` (`#18994`), `procfs_stale_
+  read_portable` (`#18998`, merged under the title "accept Alpine's
+  EIO error message" -- reviewer reworded the commit message and
+  dropped an inline comment during review, same code change), `user_
+  namespace` (`#18999`), `exec_001_pos_multicall` (`#19000`). User
+  synced this fork's `master` from upstream afterward.
+- `baseline` rebased onto the new `master` (trivial -- one commit, the
+  permanent `**DEBUG**` runner-restriction commit), force-with-leased.
+- The four now-merged branches deleted, local + `origin`.
+- **`claude/dnode_rele_uaf`, `claude/getopt_long_permute`, `claude/
+  lzc_send_wrapper_splice_race`, `claude/mkbusy_kill_race`, `claude/
+  send_progress_race`** -- the five remaining active fix branches --
+  all rebased onto the new `baseline`, clean, force-with-leased.
+- **New fix branch: `claude/getopt_long_permute`** (this session) --
+  resolves `zfs_get_006_neg`: none of `zfs_main.c`'s six
+  `getopt_long()` calls had a leading `+` in their optstring, so all
+  six ran in GNU-permuting mode on musl (glibc permutes regardless via
+  a non-portable extension; `POSIXLY_CORRECT` stops it on glibc but
+  musl's `getopt_long()` ignores that variable entirely by design,
+  confirmed by reading musl's source). Fixed all six call sites (one
+  repeated defect, not six independent ones) with the portable `+`
+  prefix, already precedented in-tree (`cmd/zhack.c`). Validated:
+  `zfs_get_006_neg` + full `zfs_get` group (11 PASS, 1 expected SKIP),
+  `zfs_list`/`zfs_mount`/`zfs_share`/`zfs_unmount`/`zfs_unshare`/
+  `channel_program` groups (61/61 PASS), `rsend` (50/51 PASS, the one
+  FAIL a pre-existing unrelated issue). Real-CI confirmed on its own
+  isolated run before this session's rebase (`33040755881`, now
+  deleted after extracting this): `zfs_get_006_neg` **PASS** on
+  Alpine; every other failure in that run was either cluster 4/5 (not
+  included on this single-topic branch) or the already-tracked `send-
+  c_stream_size_estimate`. **No PR yet.**
+- **New fix branch: `claude/ksh_alpine_prebuilt`** (this session) --
+  promotes the ksh93-install redirect from a `**DEBUG**` commit (on
+  the now-deleted `combined-review-10`) to a real, permanent commit:
+  `qemu-3-deps-vm.sh`'s Alpine `ksh93` install step now installs the
+  prebuilt, fixed `.apk` from `m68k-io/ksh`'s `zfs` release
+  (`apk add --allow-untrusted`) instead of cloning and building
+  upstream `ksh93/ksh`'s (unfixed) `1.0` branch from source. Not a
+  DEBUG hack because it's a legitimate, intended-to-stay fix for this
+  fork's own CI -- but also not directly upstream-submittable to
+  `openzfs/zfs` as-is, since it depends on a personal fork's GitHub
+  release rather than anything `openzfs/zfs` could reasonably point
+  at; see the commit message for the intended end state (revert once
+  the ksh fixes land in `ksh93/ksh` proper). Hit and fixed a
+  `commitcheck` **subject**-line-length violation while landing this
+  (75 chars; the limit applies to the subject independently of the
+  72-char *body*-wrap rule already documented above) -- see
+  `CLAUDE.md`'s working principles for the corrected note.
+- **`claude/combined-review-9` and `claude/combined-review-10`
+  deleted**, local + `origin` -- superseded by `claude/combined-
+  review-11` below. Before deleting `-10`, extracted its real-CI run's
+  data (see `claude-notes/CI-RUN-2026-08-27-combined-review-10.md`):
+  clusters 4 and 5 both confirmed resolved *in combination*, zero core
+  dumps on Alpine.
+- **New combined-review branch: `claude/combined-review-11`** -- six
+  commits on the rebased `baseline`: `dnode_rele_uaf`, `getopt_long_
+  permute`, `lzc_send_wrapper_splice_race`, `mkbusy_kill_race`,
+  `send_progress_race`, `ksh_alpine_prebuilt`. Every currently-
+  unmerged fix, all cherry-picked clean, no conflicts.
+- **CI/workflow-run cleanup**: deleted 69 stale/orphaned workflow runs
+  on `m68k-io/zfs` -- old pre-rebase commits on branches that got
+  force-pushed this session, and runs whose branch had already been
+  deleted (the entire `combined-review-2` through `-8-cluster4-fix`
+  diagnostic-branch history, the four just-merged branches' old runs,
+  and 7 sub-minute cancelled-noise runs from the `master` sync).
+  `alex-moch/zfs`'s runs were checked too -- nothing redundant there,
+  left alone.
+- **`/var/tmp` on the local dev VM cleaned up** (19GB of accumulated
+  ZTS test leftovers -- `tmp.*` scratch files, `file-vdev*`/`file1`
+  loopback-backed test images, old `test_results/`, a stray `core.sh.*`
+  already analyzed in an earlier session, etc.). Confirmed safe first:
+  `zpool list`/`zpool status` showed no imported pools, `mount` showed
+  no ZFS datasets or loop devices mounted under `/var/tmp`, and no
+  zfs-related process was running -- nothing was actually using any of
+  it, so a plain `rm -rf` (not a forced ZFS teardown of anything) was
+  sufficient.

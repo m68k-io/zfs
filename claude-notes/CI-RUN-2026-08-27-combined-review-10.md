@@ -10,6 +10,28 @@ Overall conclusion: **failure**, but the failures are all accounted
 for below; the two things this run existed to validate (cluster 4 +
 cluster 5, in combination) both came back clean.
 
+**Correction (2026-08-27, later same day)**: the original version of
+this file treated every raw `[FAIL]` line as a real failure instead of
+checking ZTS's own `Results Summary` split between "expected" and
+"unexpected" non-PASS results. A second independent run of the same
+6-fix content (`alex-moch/zfs` run `33097895692`, Alpine leg) hit
+nearly the identical raw-`[FAIL]` list, and checking *that* run's own
+Results Summary showed **every one of them is in ZTS's "expected"
+list**, each tied to a real tracked upstream issue or an explicit
+known-limitation note (`openzfs/zfs#7633` casenorm, `#14851`/"Known
+issue" fault/auto_replace, `#11889` auto_spare_multiple, `#18491`
+xdr_resume_bookmark_raw_with_write, "Arbitrary pool rewind is not
+guaranteed" for import_rewind_device_replaced, "Known issue" for
+refreserv_004_pos) -- not flakiness, not a regression, just normal ZTS
+output. This run's own source log and branch are already deleted, so
+the Alpine list below can't be re-verified line-for-line against a
+Results Summary the same way, but given the near-total overlap with
+the second run's list, treat everything under "Alpine leg" and
+"FreeBSD leg" below as **very likely all expected/tracked, not a real
+finding** -- the "Not yet explained" framing was wrong methodology,
+not a real open question. See `CLAUDE.md`'s matching retraction for
+the full account.
+
 ## What this branch carried
 
 `combined-review-9`'s 8-commit stack (the four then-open-PR fixes, the
@@ -57,13 +79,13 @@ non-cluster-4/5 failures, plus FreeBSD-only ones (`zpool_initialize_
 multiple_pools`, both `casenorm` variants FreeBSD also runs,
 `receive-o-x_props_override`).
 
-**Not yet explained.** The overlap across two unrelated platforms in
-the same multi-hour, multi-VM run points toward generic test flakiness
-or resource contention (six platforms' QEMU VMs running concurrently
-on the same CI host for 2-4.5 hours each) rather than a real
-per-platform code regression -- but this is a hypothesis, not a
-confirmed diagnosis. Worth a dedicated look: rerun just these specific
-tests in isolation on both platforms and see if they reproduce.
+**Superseded by the correction above.** Originally framed as "not yet
+explained"; given the second run's confirmation that the same test
+names on Alpine are all ZTS-expected/tracked, the far more likely
+explanation is that these are the normal cross-platform expected-
+failure set for casenorm/xdr/refreserv/import_rewind, not flakiness or
+contention. Not independently re-confirmed for FreeBSD specifically
+(source log gone), but no longer treated as an open mystery.
 
 ## Other legs
 

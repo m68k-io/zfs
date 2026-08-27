@@ -617,25 +617,34 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     didn't, so `zfs_get_006_neg` should now pass too where `-10`
     correctly failed it (confirmed separately: `getopt_long_permute`'s
     own isolated run passed `zfs_get_006_neg`, see the CI-RUN file).
-  - **New, not yet triaged**: `combined-review-10`'s run also showed a
-    cluster of failures — `casenorm/*` (6 tests), `import_rewind_
-    device_replaced`, `refreserv_004_pos`, `send_xdr_encoding/xdr_
-    bookmark_raw_with_write` + `xdr_resume_bookmark_raw_with_write`,
-    `vdev_zaps_007_pos`, `fault/auto_replace_001/002_pos` +
-    `auto_spare_multiple` — that don't match any known cluster.
-    Suspicious pattern: several of these exact same test names failed
-    identically on that run's *FreeBSD* leg too (`import_rewind_
-    device_replaced`, `refreserv_004_pos`, both `xdr_*` tests,
-    `vdev_zaps_007_pos`), despite FreeBSD sharing no code path with
-    Alpine/musl for any of this fork's fixes — points toward generic
-    test flakiness or resource contention under a long multi-VM
-    concurrent run rather than a real per-platform regression, but
-    genuinely not confirmed either way. `fault/auto_replace_*` +
-    `auto_spare_multiple` may just be a `scsi_debug` timing flake
-    (cluster 7's underlying mechanism, already fixed, but the module
-    load/detection race itself was never separately hardened) — also
-    unconfirmed. Worth a dedicated look before assuming either
-    explanation.
+  - **Retracted (2026-08-27): the "new, not yet triaged" cluster below
+    was a methodology error, not a real finding.** The original
+    write-up grepped every raw `[FAIL]` line in the log instead of
+    checking ZTS's own `Results Summary` split between "results other
+    than PASS that are expected" and "...that are unexpected" (a
+    distinction this file's own cluster-4/linux-stable-kernel entries
+    already relied on correctly, months earlier — this was a
+    regression in method, not a new gap in knowledge). Re-checked
+    against a second, independent real-CI run of the same content
+    (`alex-moch/zfs` run `33097895692`, Alpine leg, 2026-08-27):
+    `casenorm/*`, `import_rewind_device_replaced`, `refreserv_
+    004_pos`, `send_xdr_encoding/xdr_resume_bookmark_raw_with_write`,
+    and `fault/auto_replace_001/002_pos`+`auto_spare_multiple` are
+    **all** in ZTS's own "expected" list, each tied to a real tracked
+    upstream issue (`openzfs/zfs#7633`, `#14851`, `#11889`, `#18491`)
+    or an explicit "Known issue"/"not guaranteed" note — not flakiness,
+    not a regression, just normal ZTS output that a correct read of
+    the summary would have filtered out immediately. The **actual**
+    single unexpected failure on that run: `events/zed_cksum_reported`
+    (vm2 only), immediately preceded in dmesg by `sched: DL replenish
+    lagged too much` — looks like VM scheduling contention, not a code
+    issue, and it's a single occurrence so far. Per this file's own
+    "ZTS is known to be flaky" principle: noted, not chased further
+    without a second occurrence. **Lesson**: always read ZTS's own
+    expected/unexpected split before treating any `[FAIL]` line as
+    signal — grepping raw `[FAIL]` lines produces a majority-false
+    "cluster" that looks alarming but is normal, already-tracked
+    output.
   - Full annotated mapping of one specific real-CI run's failures to
     all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
     (older, going stale) and `claude-notes/CI-RUN-2026-08-27-

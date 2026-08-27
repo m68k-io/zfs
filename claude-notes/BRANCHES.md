@@ -356,14 +356,22 @@ underlying root-cause analysis behind each fix.
 
 - **`claude/combined-review-10` (2026-08-27)**, off
   `combined-review-9` — adds one `**DEBUG**` commit on top of the same
-  8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine ksh93-from-
-  source build to `m68k-io/ksh`'s new `zfs` branch (briefly misnamed
-  `zsh` — typo, renamed same day; see that fork's
-  own branch inventory) instead of plain `ksh93/ksh --branch 1.0`, to
-  validate cluster 5 combined with everything else in one real-CI run.
-  User's own call: this redirect belongs in a diagnostic commit on
-  this fork, not a permanent change (upstream doesn't know about the
-  ksh fork). Pushed, triggered a real CI run — check
+  8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine ksh93 install
+  to `m68k-io/ksh`'s new `zfs` branch (briefly misnamed `zsh` — typo,
+  renamed same day; see that fork's own branch inventory) instead of
+  plain `ksh93/ksh --branch 1.0`, to validate cluster 5 combined with
+  everything else in one real-CI run. User's own call: this redirect
+  belongs in a diagnostic commit on this fork, not a permanent change
+  (upstream doesn't know about the ksh fork).
+  **First push** (`git clone --branch zfs` + build from source) was
+  accidentally cancelled ~2h into its own CI run before completing —
+  see the "Current status" cluster-5 entry in `CLAUDE.md` for the full
+  account and the real per-test data recovered from the job log before
+  it was deleted (all five cluster-5 tests passed, zero `[FAIL]`
+  anywhere in what completed). **Second push** (`b639740a8`) replaced
+  the from-source build with installing a prebuilt release instead
+  (`m68k-io/ksh` release `alpine-9bcb5762` — see `CLAUDE.md` for
+  detail), cutting real CI time on this leg. Check
   `gh run list --repo m68k-io/zfs --branch claude/combined-review-10`
-  for the outcome if not already known.
+  for this run's outcome if not already known.
 

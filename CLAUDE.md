@@ -566,18 +566,55 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     fork.
     **`claude/combined-review-10`** (this repo, off `claude/
     combined-review-9`) adds one `**DEBUG**` commit on top of the
-    existing 8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine
-    `git clone ... ksh93/ksh --branch 1.0` to `m68k-io/ksh --branch
-    zfs` instead, to validate whether cluster 5 is actually resolved
-    when combined with everything else (including cluster 4's fix, now
-    that it has its own real-CI validation too). Per the user's own
-    call, this redirect lives in a DEBUG commit on this fork, not as a
-    permanent change — revert once cluster 5's fix lands in `ksh93/
-    ksh` for real. Pushed, triggered a real CI run; check
+    existing 8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine ksh93
+    install to `m68k-io/ksh`'s `zfs` branch content instead of plain
+    upstream, to validate whether cluster 5 is actually resolved when
+    combined with everything else (including cluster 4's fix, now that
+    it has its own real-CI validation too). Per the user's own call,
+    this redirect lives in a DEBUG commit on this fork, not as a
+    permanent change — revert once cluster 5's fix lands in `ksh93/ksh`
+    for real.
+    **First run (`33038768627`, `git clone --branch zfs` + build from
+    source) accidentally cancelled ~2h in (2026-08-27)** — mistakenly
+    judged as "superseded" by a later run testing the same content via
+    a faster install mechanism (see the release note below) without
+    checking how far along it already was; a real ~2 hours of progress
+    lost, noted as a mistake to avoid repeating (check time-invested
+    before cancelling something substantial, don't just reason from
+    "a newer approach exists"). **Real data recovered from the job log
+    before deleting the run**: cancellation happened mid-`Run tests`
+    (not after completion), so the run's own final "Results Summary"
+    is a broken 0/0/0 artifact of the summary script's "VM didn't
+    finish ZTS" reset path — but the raw per-test log lines are real,
+    and confirm all five cluster-5 tests **passed**:
+    `zfs_list_001_pos`, `zfs_list_003_pos`, `zfs_list_007_pos`,
+    `zpool_add_001_neg`, `zpool_create_001_neg` — plus **zero `[FAIL]`
+    lines anywhere** in the ~1395 tests (both VMs combined) that
+    completed before cancellation. Run deleted after extracting this
+    (`gh run delete 33038768627`).
+    **Superseded by a second push (`b639740a8`, still `claude/
+    combined-review-10`)**: replaced the git-clone-and-build step with
+    installing a prebuilt release instead (see "ksh Alpine release"
+    below) — same fix content, much less CI time spent per run. Check
     `gh run list --repo m68k-io/zfs --branch claude/combined-review-10`
-    for the outcome if not already known. If clean, `zpool_add_001_neg`,
-    `zpool_create_001_neg`, and `zfs_list_001/003/007_pos` should all
-    pass for the first time on this fork's Alpine CI.
+    for this run's outcome if not already known; given the first run's
+    recovered data, a clean result here is expected, not a first
+    confirmation.
+    **ksh Alpine release**: `m68k-io/ksh` release
+    [`alpine-9bcb5762`](https://github.com/m68k-io/ksh/releases/tag/alpine-9bcb5762)
+    — a manual (not automated-workflow) build of the `zfs` branch,
+    staged exactly as `bin/package install /` would produce (tar of
+    `bin/`, `lib/`, `share/`, `include/`), published after a clean
+    local build and a full passing `sh bin/shtests` regression run (0
+    errors). `qemu-3-deps-vm.sh`'s Alpine leg now does `curl -fsSL
+    .../releases/latest/download/ksh93-alpine3.24-x86_64.tar.gz | sudo
+    tar -xz -C /` instead of cloning+building from source — verified
+    the exact command locally first (replaced this dev VM's own
+    installed `ksh`, confirmed the version string matched). Chose a
+    one-off manual release over an automated build-and-publish
+    workflow, since `zfs` is a small, infrequently-changing branch —
+    rebuild and republish by hand if it ever changes again, or revisit
+    automating it if that turns out to be more often than expected.
   - **Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) fixed 2026-08-26**
     — root cause confirmed via a local ASAN build (real
     heap-use-after-free, two independent hits, identical stack both

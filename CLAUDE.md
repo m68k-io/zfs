@@ -566,11 +566,15 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     unpatched real-CI run (all 16 crashed at the identical instruction
     offset) and a patched real-CI run of the same test groups
     (74/74 PASS, 0 crashes, vs. ~50% FAIL/16-crash rate without the
-    fix). Fix branch: `claude/dnode_rele_uaf`. **Not yet submitted
-    upstream** — this is a real core-code fix (not a test-portability
-    one), so give it the "never break other platforms" scrutiny above
-    before submitting; this VM can't verify non-Alpine legs locally,
-    only via real CI. See cluster 4 in `claude-notes/INVESTIGATIONS.md`
+    fix). Fix branch: `claude/dnode_rele_uaf`. **Cross-platform
+    scrutiny now done too**: a full 16-platform run on the separate
+    `alex-moch/zfs` final-QA repo plus two 6-platform runs on this
+    fork — 0 cluster-4-signature failures across all 28 platform-legs
+    checked. One unrelated lead not yet confirmed as flaky:
+    `alloc_class_016_pos` FAILed once on `ubuntu26` with a "pool busy"
+    error at cleanup, not cluster 4's signature. **Still not yet
+    submitted upstream** — nothing left blocking it technically, just
+    hasn't been submitted. See cluster 4 in `claude-notes/INVESTIGATIONS.md`
     for the full mechanism, stack traces, and validation detail.
   - **Fork synced and branches cleaned up again (2026-08-26).**
     `origin/master` confirmed byte-identical to `openzfs/zfs`'s master

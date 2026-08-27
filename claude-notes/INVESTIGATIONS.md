@@ -515,12 +515,47 @@ config, not a shared runner limitation.
      Alpine-specific, and glibc's allocator just happens to usually
      mask the symptom. Neither theory independently confirmed.
 
-     **Not yet done**: submitting `claude/dnode_rele_uaf` upstream.
-     Given this is a real cross-thread reference-counting race in
-     core BRT/DDT-adjacent teardown logic, it needs real scrutiny
-     before landing — see the "never break other platforms" working
-     principle in `CLAUDE.md`; this VM can't verify the FreeBSD or
-     glibc-distro legs locally, only via real CI.
+     **Cross-platform validation done (2026-08-26, later the same
+     day)**: the "never break other platforms" scrutiny above was
+     the one gap this VM genuinely couldn't close locally. Three real
+     CI runs, triggered via `workflow_dispatch` (manual re-trigger on
+     an existing branch tip, no new commit needed):
+     - `claude/dnode_rele_uaf` alone, full m68k-io matrix (alpine3-24,
+       almalinux10, debian13, fedora44, freebsd15-1r, ubuntu26) — 5/6
+       platforms clean; alpine3-24's only unexpected FAILs are
+       already-known gaps unrelated to this fix (cluster 5's ksh bug,
+       not fixed in this fork's build; other branches' fixes simply
+       not stacked on this single-topic branch, as intended).
+     - `claude/combined-review-9` (all 8 unmerged patches stacked,
+       including this fix), same matrix — same 5/6 clean, and
+       alpine3-24 narrows to *just* cluster 5's known gap once the
+       other branches' fixes are actually present.
+     - **The real test**: a full 16-platform run on the separate
+       final-QA repo (`alex-moch/zfs`, `alpine/combined-review`
+       branch, run `33009036571`) — the *complete* upstream CI matrix
+       (centos-stream9/10, almalinux8/9/10, ubuntu22/24/26,
+       fedora43/44, freebsd14-4r/15-1r/15-1s/16-0c, debian12/13).
+       15/16 clean. `fedora44` showed FAILs but its own "unexpected"
+       bucket was empty (all FAILs landed in ZTS's own "expected"/
+       known-flaky category; non-zero exit code regardless, matching
+       already-documented behavior). One genuinely unexpected
+       failure: `alloc_class/alloc_class_016_pos` on `ubuntu26` —
+       every assertion in the test actually passed (pool create,
+       writes, sync all `SUCCESS`); the failure was `cannot destroy
+       'testpool': pool is busy` at cleanup. Not cluster 4's
+       signature (no `zdb`, no `get_same_blocks`, no segfault, no
+       BRT/DDT/dnode involvement at all) — looks like the kind of
+       background ZTS flake the "ZTS is known to be flaky" working
+       principle already covers, but not independently confirmed via
+       a rerun yet.
+     **Zero cluster-4-signature failures anywhere** across all three
+     runs (28 platform-legs total): no `zdb` segfaults, no `Memory
+     fault` in `get_same_blocks`, no `core.zdb.*` files, no
+     heap-use-after-free reports. This is real confirmation the fix
+     doesn't regress any platform, not just Alpine.
+     **Not yet done**: submitting `claude/dnode_rele_uaf` upstream,
+     and confirming the `alloc_class_016_pos`/`ubuntu26` lead is
+     actually flaky (rerun that one leg) rather than assuming it.
 5. **musl `SIGILL` in `ld-musl-x86_64.so.1`** — `zpool_iostat`/
    `zpool_status` `-c` (custom command) variants and their plain
    `_005_pos`/`_003_pos` siblings crash with `trap invalid opcode` /

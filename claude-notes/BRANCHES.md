@@ -327,10 +327,14 @@ underlying root-cause analysis behind each fix.
   (all crashing at the identical instruction offset) plus a clean
   74/74-PASS real-CI run of the same test groups with the fix applied.
   `#ifdef ZFS_DEBUG` only; moves an unsafe read earlier, doesn't change
-  non-debug/production code paths. **Not yet submitted upstream** — a
-  real core-code (not test-portability) fix, so this one needs the
-  "never break other platforms" scrutiny the working principles call
-  for, and this VM can't verify the FreeBSD/glibc legs locally.
+  non-debug/production code paths. **Cross-platform scrutiny done
+  (2026-08-26)**: full 16-platform run on the `alex-moch/zfs` final-QA
+  repo plus two 6-platform runs here — 0 cluster-4-signature failures
+  across 28 platform-legs. One unconfirmed lead: `alloc_class_016_pos`
+  FAILed once on `ubuntu26` with a "pool busy" cleanup error, not
+  cluster 4's signature — looks like ordinary ZTS flakiness but not
+  yet confirmed via rerun. **Not yet submitted upstream** — nothing
+  technical left blocking it, just hasn't been submitted.
 - **New combined-review branch: `claude/combined-review-9`**, built by
   cherry-picking every currently-unmerged real branch onto the rebased
   `baseline` — the four open-PR branches (`getopt_permute`,

@@ -357,7 +357,8 @@ underlying root-cause analysis behind each fix.
 - **`claude/combined-review-10` (2026-08-27)**, off
   `combined-review-9` — adds one `**DEBUG**` commit on top of the same
   8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine ksh93-from-
-  source build to `m68k-io/ksh`'s new `zsh` branch (see that fork's
+  source build to `m68k-io/ksh`'s new `zfs` branch (briefly misnamed
+  `zsh` — typo, renamed same day; see that fork's
   own branch inventory) instead of plain `ksh93/ksh --branch 1.0`, to
   validate cluster 5 combined with everything else in one real-CI run.
   User's own call: this redirect belongs in a diagnostic commit on

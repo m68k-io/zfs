@@ -555,19 +555,20 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     `claude/upstream-staknam-fix`), confirmed via real CI to fully
     resolve cluster 5, but **not yet submitted to `ksh93/ksh`**
     (deliberately deferred).
-    **Combined into a new `zsh` branch (2026-08-27)**, on the ksh
-    fork: both fix commits cherry-picked onto `ksh93/ksh`'s own `1.0`
-    tip (not `dev` — this fork's ZFS CI pins `1.0` specifically "for a
-    reproducible, stable build", so building `zsh` on top of anything
-    else would introduce unrelated `dev`-vs-`1.0` drift into the
-    comparison). Both cherry-picks applied clean, sanity-built locally
-    (`93u+m/1.0.11-beta+9bcb5762`). Pushed to `origin/zsh` on the ksh
+    **Combined into a new `zfs` branch (2026-08-27, briefly misnamed
+    `zsh` — typo, renamed same day)**, on the ksh fork: both fix
+    commits cherry-picked onto `ksh93/ksh`'s own `1.0` tip (not `dev`
+    — this fork's ZFS CI pins `1.0` specifically "for a reproducible,
+    stable build", so building `zfs` on top of anything else would
+    introduce unrelated `dev`-vs-`1.0` drift into the comparison).
+    Both cherry-picks applied clean, sanity-built locally
+    (`93u+m/1.0.11-beta+9bcb5762`). Pushed to `origin/zfs` on the ksh
     fork.
     **`claude/combined-review-10`** (this repo, off `claude/
     combined-review-9`) adds one `**DEBUG**` commit on top of the
     existing 8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine
     `git clone ... ksh93/ksh --branch 1.0` to `m68k-io/ksh --branch
-    zsh` instead, to validate whether cluster 5 is actually resolved
+    zfs` instead, to validate whether cluster 5 is actually resolved
     when combined with everything else (including cluster 4's fix, now
     that it has its own real-CI validation too). Per the user's own
     call, this redirect lives in a DEBUG commit on this fork, not as a

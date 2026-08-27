@@ -551,14 +551,32 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   - **Cluster 5's real fix (`sh.save_env` dangling pointer) lives on
     the sibling `~/Development/ksh` fork**, not this repo — see that
     project's own `CLAUDE.md`. Two clean, independent, upstream-ready
-    branches exist there (`claude/upstream-save-env-fix`,
+    branches existed there (`claude/upstream-save-env-fix`,
     `claude/upstream-staknam-fix`), confirmed via real CI to fully
     resolve cluster 5, but **not yet submitted to `ksh93/ksh`**
-    (deliberately deferred). Until that lands, `zpool_add_001_neg`,
-    `zpool_create_001_neg`, and `zfs_list_001/003/007_pos` will keep
-    failing on real CI even after every branch above merges, since
-    this fork's CI builds ksh93 from plain upstream `1.0`, which
-    doesn't have the fix.
+    (deliberately deferred).
+    **Combined into a new `zsh` branch (2026-08-27)**, on the ksh
+    fork: both fix commits cherry-picked onto `ksh93/ksh`'s own `1.0`
+    tip (not `dev` — this fork's ZFS CI pins `1.0` specifically "for a
+    reproducible, stable build", so building `zsh` on top of anything
+    else would introduce unrelated `dev`-vs-`1.0` drift into the
+    comparison). Both cherry-picks applied clean, sanity-built locally
+    (`93u+m/1.0.11-beta+9bcb5762`). Pushed to `origin/zsh` on the ksh
+    fork.
+    **`claude/combined-review-10`** (this repo, off `claude/
+    combined-review-9`) adds one `**DEBUG**` commit on top of the
+    existing 8-patch stack: redirects `qemu-3-deps-vm.sh`'s Alpine
+    `git clone ... ksh93/ksh --branch 1.0` to `m68k-io/ksh --branch
+    zsh` instead, to validate whether cluster 5 is actually resolved
+    when combined with everything else (including cluster 4's fix, now
+    that it has its own real-CI validation too). Per the user's own
+    call, this redirect lives in a DEBUG commit on this fork, not as a
+    permanent change — revert once cluster 5's fix lands in `ksh93/
+    ksh` for real. Pushed, triggered a real CI run; check
+    `gh run list --repo m68k-io/zfs --branch claude/combined-review-10`
+    for the outcome if not already known. If clean, `zpool_add_001_neg`,
+    `zpool_create_001_neg`, and `zfs_list_001/003/007_pos` should all
+    pass for the first time on this fork's Alpine CI.
   - **Cluster 4 (zdb/dbuf teardown crash, BRT/DDT) fixed 2026-08-26**
     — root cause confirmed via a local ASAN build (real
     heap-use-after-free, two independent hits, identical stack both

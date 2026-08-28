@@ -649,6 +649,39 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     all of the above: `claude-notes/CI-RUN-2026-08-25-master.md`
     (older, going stale) and `claude-notes/CI-RUN-2026-08-27-
     combined-review-10.md` (this session's, current as of writing).
+  - **Second full-matrix confirmation of `combined-review-11`'s exact
+    content (2026-08-27, user-triggered on `alex-moch/zfs`).** Two
+    runs, `alpine/combined-review` branch (all six fixes cherry-picked
+    onto it, matching `claude/combined-review-11` exactly):
+    `33097895692` (6-platform wave) and `33098018148` (10-platform
+    wave). **`alpine3-24` came back fully green on the second attempt**
+    (0 failures at all, expected or not) — the first attempt's
+    `alpine3-24` hit `configure: error: ... CONFIG_MODULES ... no`
+    during `Build modules`, a one-off VM/environment fluke (confirmed
+    not a package issue: the exact same `linux-stable`/`linux-stable-
+    dev 7.1.5-r0` package version had succeeded on this same run's
+    other legs hours earlier) — most likely stale VM disk state from
+    a re-run reusing a cached image, not reproduced on a clean retry.
+    `fedora44`'s one `FAIL` (`send_xdr_encoding/xdr_bookmark_raw_with_
+    write`) is tracked (`openzfs/zfs#18491`), same pattern as its
+    `_resume_` sibling — confirmed via the actual Results Summary
+    "unexpected" section (empty), not a raw `[FAIL]` grep, learning
+    the lesson from the retraction above. **4 infra failures in the
+    10-platform wave, none correctness-related**: `centos-stream9`/
+    `centos-stream10` — `Build modules` timed out at 30 min, root
+    cause visible in the log this time (`epel-release` package fetch
+    timed out against a slow third-party mirror,
+    `mirror.shomepower.com`); `ubuntu22`/`almalinux8` — `Run tests`
+    timed out at 270 min. **`ubuntu22`'s 270-min timeout is now a
+    repeat** — same platform, same step, same timeout, across two
+    independent full-matrix runs (the earlier `33009036571` and this
+    `33098018148`) — no longer just one-off noise. Plausible
+    explanation, not confirmed: fixing clusters 4/5 means tests that
+    used to crash out early (freeing wall-clock time for the rest of
+    the suite) now run to full completion instead, so already-
+    marginal platforms could be tipping over a fixed timeout budget as
+    a side effect of the crash fixes working, not a regression from
+    them. Zero cluster-4/5-signature failures across both runs.
 - **Branch/CI hygiene pass (2026-08-27)**: user confirmed all four
   previously-open PRs (`#18994`, `#18998`, `#18999`, `#19000`) merged
   and synced this fork's `master`. Rebased `baseline` onto the new

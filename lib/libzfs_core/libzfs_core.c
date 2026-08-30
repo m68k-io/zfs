@@ -79,6 +79,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
 #include <libzutil.h>
 #include <sys/nvpair.h>
 #include <sys/param.h>
@@ -871,8 +872,25 @@ lzc_send_wrapper(int (*func)(int, void *), int orig_fd, void *data)
 	off_t start = lseek(orig_fd, 0, SEEK_CUR);
 	ctx.seekable = (start != -1);
 	ctx.pos = start;
+	/*
+	 * When the relay gives up it closes its end of the pipe, and the
+	 * write func() is in the middle of then raises SIGPIPE at whichever
+	 * thread is writing -- killing the process before the relay's real
+	 * error (ENOSPC, say) can be reported, leaving a truncated stream
+	 * and not one word about why.  Block it across the whole relay, so
+	 * that write fails EPIPE instead and the error below gets out.  The
+	 * worker inherits this mask, which covers its own writes too.
+	 */
+	sigset_t pipeset, oldset;
+	(void) sigemptyset(&pipeset);
+	(void) sigaddset(&pipeset, SIGPIPE);
+	boolean_t masked = (pthread_sigmask(SIG_BLOCK, &pipeset, &oldset) == 0);
+	boolean_t wasblocked = masked && sigismember(&oldset, SIGPIPE);
+
 	if ((err = pthread_create(&send_thread, NULL, send_worker, &ctx))
 	    != 0) {
+		if (masked)
+			(void) pthread_sigmask(SIG_SETMASK, &oldset, NULL);
 		close(rw[0]);
 		close(rw[1]);
 		return (errno = err);
@@ -883,7 +901,30 @@ lzc_send_wrapper(int (*func)(int, void *), int orig_fd, void *data)
 	void *send_err;
 	close(rw[1]);
 	pthread_join(send_thread, &send_err);
-	if (err == 0 && send_err != 0)
+
+	if (masked) {
+		/*
+		 * Drop the SIGPIPE we provoked, unless the caller already had
+		 * it blocked, in which case a pending one may be theirs.
+		 */
+		if (!wasblocked) {
+			struct timespec zero = {0, 0};
+			while (sigtimedwait(&pipeset, NULL, &zero) == -1 &&
+			    errno == EINTR)
+				continue;
+		}
+		(void) pthread_sigmask(SIG_SETMASK, &oldset, NULL);
+	}
+
+	/*
+	 * When the relay failed and func() failed with it, the relay has
+	 * the real reason: the pipe was func()'s only way out, and it
+	 * collapses every output failure to EINTR.  Prefer the relay's
+	 * error in that case only.  A func() that failed on its own terms
+	 * -- a bad dataset, say, reported before it ever wrote -- keeps
+	 * its own error, which is the one its caller has to see.
+	 */
+	if (send_err != 0 && (err == 0 || err == EINTR || err == EPIPE))
 		errno = err = (uintptr_t)send_err;
 
 	/*

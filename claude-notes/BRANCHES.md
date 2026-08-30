@@ -53,11 +53,14 @@ underlying root-cause analysis behind each fix.
     equivalent to an already-upstream commit and dropped it automatically,
     leaving only the two commits above (now just the one DEBUG commit,
     per the `a983deb6e` update above).
-- **Eight one-commit fix branches remain** (originally thirteen; four
-  deleted 2026-08-24 as merged/withdrawn, and `tzdata`+`libcap-utils`
-  combined into one new branch, `claude/alpine_ci_deps` — see "Current
-  status" below for both), each stacked directly on `baseline` and each
-  targeting one root cause (`claude/alpine_ci_deps` is a deliberate,
+- **Seven fix branches remain** (originally thirteen; four deleted
+  2026-08-24 as merged/withdrawn, `tzdata`+`libcap-utils` combined into
+  one new branch, `claude/alpine_ci_deps`, and `send_progress_race`
+  deleted 2026-08-30 as a misdiagnosis — see "Current status" below and
+  the entry below for each), each stacked directly on `baseline` and
+  each targeting one root cause. All are one commit apiece except
+  `claude/lzc_send_wrapper_splice_race`, which carries three after
+  2026-08-30 (see its entry for why) (`claude/alpine_ci_deps` is a deliberate,
   narrow exception — two CI-provisioning package additions in one
   commit, not two separate root causes, done specifically because they
   collide on the same wrapped `apk add` line in `qemu-3-deps-vm.sh`).
@@ -69,8 +72,10 @@ underlying root-cause analysis behind each fix.
   not full ZTS-test execution (see cluster 7 above for exactly what was
   and wasn't checked); `claude/mkbusy_kill_race` was validated directly
   (3/3 fail before, 3/3 pass after, see cluster 6 above);
-  `claude/send_progress_race` validated via manual repro and a 79-test
-  regression sweep (see below). None yet re-tested in real CI:
+  `claude/lzc_send_wrapper_splice_race` re-validated 2026-08-30 with
+  three dedicated ZTS regression tests, each failing without its commit
+  and passing with it (see its entry below). None yet re-tested in real
+  CI:
   - `claude/mmp` (`ff9ad253a`, amended locally from `origin/claude/mmp`'s
     `a4283ddbe` to drop an unrelated blank-line deletion) — musl's
     `gethostid()` ignores `/etc/hostid` and always returns 0, so
@@ -221,32 +226,57 @@ underlying root-cause analysis behind each fix.
     single check) is correct — it is, regardless of the exact
     mechanism — only how confidently "not platform-specific" can be
     stated in the PR description.
-  - `claude/send_progress_race` (`32d09c43d`, new 2026-08-23, cluster 6,
-    real product bug not a test-script issue) — `zfs send -nP` output
-    corruption in `lib/libzfs/libzfs_sendrecv.c`; see the full diagnosis
-    under cluster 6 above. Fix: a `send_print_line()` helper (flush +
-    single `write(2)`) replacing `fprintf(3)` at the 3 call sites that
-    print after a `send_progress_thread` create/cancel/join cycle.
-    Branched from `baseline` (not bare `master` — see the `baseline`
-    bullet above on why), rebuilt and reinstalled clean, re-verified 8/8
-    on the new base before committing. Superseded as the *root-cause*
-    fix by `claude/lzc_send_wrapper_splice_race` below, but still a
-    valid, independent, harmless improvement in its own right.
-    **No PR yet.**
-  - `claude/lzc_send_wrapper_splice_race` (`1c4bb02cc`, new
-    2026-08-23, the real root cause of the same bug as
-    `claude/send_progress_race` above). **No PR yet.** —
-    `lzc_send_wrapper()`'s
-    internal `send_worker()` relay thread `splice()`s into the
-    caller's destination fd using an implicit, shared kernel file
-    position, which races with callers (like `estimate_size()`) that
-    write to that same fd right after the wrapper returns. Fix: give
-    `splice()` an explicit, thread-local output offset instead, and
-    re-sync it onto the fd with one `lseek()` after `pthread_join()`.
-    See cluster 6 above for the full investigation and validation
-    (40/40 + 20/20 + a real send/receive round trip, all using the
-    *original* unfixed `libzfs_sendrecv.c` to prove this fix alone is
-    sufficient).
+  - `claude/send_progress_race` — **deleted 2026-08-30, withdrawn as a
+    misdiagnosis.** It blamed `fprintf(3)` issued shortly after a
+    `send_progress_thread` create/cancel/join cycle, but that thread
+    writes to `stderr` and nothing else (all five of its `fprintf()`
+    calls are hardcoded to it), while the corrupted output is on
+    `stdout` — it cannot have touched the corrupted stream. Nor was it
+    the harmless improvement it was previously described as: it changed
+    two `dgettext` msgids (orphaning existing translations), dropped the
+    upstream GCC/UBSan `-Wformat-overflow` pragma, and discarded
+    `write(2)`'s return value at all three sites. Never had a PR. Tip
+    preserved locally as tag `dropped/send_progress_race`
+    (`0e74dc641`) in case any of it is wanted later; nothing on the
+    remote. See cluster 6 in `INVESTIGATIONS.md` for the proven root
+    cause that replaces it.
+  - `claude/lzc_send_wrapper_splice_race` (`55cc1c83b`, rewritten
+    2026-08-30, **three commits — a deliberate exception to the
+    one-commit-per-branch rule**, see the note below). **No PR yet.**
+    All three are in `lib/libzfs_core/libzfs_core.c`'s
+    `lzc_send_wrapper()`, each with its own ZTS regression test that
+    fails without it and passes with it:
+    - `8b4829679` "don't let the send relay rewind the output fd" —
+      `send_worker()`'s `splice()` used a `NULL` `off_out`, which
+      latches the destination's file position on entry and writes it
+      back on return *even when it transfers nothing*, rewinding the
+      fd under the caller's own output. Fix: explicit thread-local
+      offset, plus a resync afterwards that is **conditional on
+      having actually relayed bytes**. Test:
+      `rsend/send_dryrun_parsable`.
+    - `5c4533785` "relay by hand when the destination is O_APPEND" —
+      `splice()` refuses `O_APPEND` targets (`EINVAL`), so
+      `zfs send >>file` died of `SIGPIPE` writing nothing. Pre-
+      existing, not introduced by the commit above. Fix: a
+      `read()`/`write()` loop for those destinations. Test:
+      `rsend/send_append_redirect`.
+    - `55cc1c83b` "report a failed send destination instead of dying
+      on it" — a relay failure closed the pipe under the still-
+      writing send, killing it by `SIGPIPE` before the real error
+      could surface (`zfs send >/dev/full`: exit 141, silence). Fix:
+      block `SIGPIPE` across the relay, consume it, and let the
+      relay's error outrank `func()`'s. Test: `rsend/send_dest_error`
+      (Linux-gated). Does **not** fix the message text — see cluster
+      6 for why that needs a `module/` change.
+    The earlier single commit (`842250155`, and `1c4bb02cc` before
+    it) is superseded: its unconditional resync `lseek()` reproduced
+    the very rewind it meant to fix, measured 200/200 corrupt. Old
+    tip preserved locally as tag
+    `pre-review/lzc_send_wrapper_splice_race`. Three commits rather
+    than three branches because they are sequential edits to one
+    function that would conflict textually as separate branches —
+    worth revisiting if they are submitted upstream separately.
+    See cluster 6 in `INVESTIGATIONS.md` for the full investigation.
   - `claude/get_prop_empty_value` (`f9d7d9aae`, new 2026-08-24) —
     `get_prop()`/`get_pool_prop()`/`get_vdev_prop()` in
     `libtest.shlib` checked exit status but not whether the command
@@ -454,3 +484,26 @@ underlying root-cause analysis behind each fix.
   zfs-related process was running -- nothing was actually using any of
   it, so a plain `rm -rf` (not a forced ZFS teardown of anything) was
   sufficient.
+
+## Update (2026-08-30): send-relay bugs re-investigated, one branch dropped
+
+- **`claude/lzc_send_wrapper_splice_race` rewritten**, now three
+  commits (`8b4829679`, `5c4533785`, `55cc1c83b`), force-pushed by the
+  user after the rewrite; the third commit pushed as a fast-forward.
+  The previously-published single commit is superseded because it did
+  not actually fix the bug — see the branch entry above and cluster 6
+  in `INVESTIGATIONS.md`. Old tip kept locally as tag
+  `pre-review/lzc_send_wrapper_splice_race`.
+- **`claude/send_progress_race` deleted**, remote and local, as a
+  misdiagnosis rather than a merely-superseded fix. Tip kept locally
+  as tag `dropped/send_progress_race`.
+- **`claude/combined-review-11` is now stale**: it still carries the
+  withdrawn `send_progress_race` commit and the superseded single-
+  commit version of `lzc_send_wrapper_splice_race`. It needs
+  regenerating from the current branches before it is used for
+  anything — not done here.
+- Neither branch ever had an upstream PR, checked via `gh pr list
+  --repo openzfs/zfs --head <branch> --state all` and by filtering the
+  upstream PR list on `head.repo.owner.login == "m68k-io"` (zero hits
+  both ways), so the force-push and the delete created no cross-
+  reference and broke no review.

@@ -1185,6 +1185,114 @@ config, not a shared runner limitation.
      - Confirmed fixed: manual repro 8+/8+ clean runs, real ZTS test
        8/8, full `rsend/` directory (79 tests) run for regressions —
        see "Local validation results" for the outcome.
+     - **Root cause finally proven, and both fixes above corrected
+       (2026-08-30).** The 2026-08-23 writeup left the mechanism "not
+       fully pinned down" and flagged a contradiction between the
+       observed thread ordering and `estimate_size()`'s source. That
+       contradiction is resolved: the `lzc_send_wrapper()` in play is
+       not the inner one reached through
+       `lzc_send_space_resume_redacted()` at all.
+       `zfs_send_one()`/`zfs_send()` wrap the *whole* operation
+       (`libzfs_sendrecv.c:2880` and `:2578`), and the inner wrapper
+       no-ops because it is handed the relay pipe, which is a FIFO.
+       So the relay's `splice()` sits blocked across the entire send,
+       including while `estimate_size()` prints to that same fd.
+       `strace -f` shows it directly:
+
+           lseek(1, 0, SEEK_CUR) = 0
+           splice(5, NULL, 1, NULL, ...) <unfinished ...>
+           writev(1, ["full\tpool/fs@snap1\t8416880","\n"]) = 31
+           <... splice resumed>) = 0
+           writev(1, ["size\t8416880\n"]) = 13
+
+       `splice()` with a `NULL` `off_out` latches `out->f_pos` on
+       entry and writes that latched value back on return — **even
+       when it transfers zero bytes**. A dry run relays nothing, so
+       the write-back rewinds fd 1 from 31 back to 0 and the "size"
+       line lands on top of the "full" line. Reproduced in isolation
+       with a small C program (block a `splice()`, `write()`
+       concurrently, close the pipe: `f_pos` goes 21 → 0), so this is
+       ordinary documented `splice()` behaviour, not a ZFS or musl
+       quirk, and not Alpine-specific.
+     - **The 2026-08-23 fix as committed did not actually work.** Its
+       unconditional `lseek(orig_fd, ctx.pos, SEEK_SET)` resync after
+       `pthread_join()` re-did the exact rewind the explicit offset
+       had just prevented: the caller had already advanced the fd to
+       31 while the relay was blocked, and the resync put it back to
+       `ctx.pos` (still 0, nothing having been relayed). Measured on
+       a rebuilt tree: **200/200 still corrupt** with that version.
+       The resync is only correct when the relay actually moved
+       bytes, so it is now conditional on `ctx.pos != start`. The
+       earlier "40/40 clean" cannot have come from the mechanism it
+       was attributed to. Note for any future A/B in this repo: the
+       in-tree `zfs` binary resolves `libzfs_core.so.3` from
+       `/usr/lib` unless `LD_LIBRARY_PATH` points at `.libs`, so it
+       is easy to "test" installed code by accident — two runs here
+       did exactly that before it was caught.
+     - **`claude/send_progress_race` was a misdiagnosis and is
+       withdrawn.** `send_progress_thread()` writes to `stderr` and
+       nothing else — all five of its `fprintf()` calls are
+       hardcoded to it — while the corrupted output is on `stdout`
+       (`fout = flags->dryrun ? stdout : stderr`). It cannot have
+       touched the corrupted stream; the correlation noted in 2026-
+       08-23 really was only that. Branch deleted (remote and local);
+       tip preserved locally as tag `dropped/send_progress_race`
+       (`0e74dc641`). It was also not free as a "harmless
+       improvement": it changed two `dgettext` msgids (orphaning
+       existing translations), dropped the upstream GCC/UBSan
+       `-Wformat-overflow` pragma, and discarded `write(2)`'s return
+       value at all three sites.
+     - **Two further bugs in the same function, found while fixing
+       this (2026-08-30), each now its own commit and ZTS test.**
+       - `splice()` refuses an `O_APPEND` destination outright,
+         `EINVAL`, with or without an explicit `off_out` (all four
+         combinations checked). So `zfs send >>file` never worked
+         through the relay: the first `splice()` failed, the worker
+         closed the pipe, and the send died of `SIGPIPE` — exit 141,
+         zero stream bytes, no message. **Pre-existing, not caused by
+         the offset change**: unpatched `baseline` fails identically.
+         Fixed by relaying `O_APPEND` destinations with a
+         `read()`/`write()` loop instead. Path selection verified by
+         syscall counts: `>` gives 171 `splice()` and 0 `write(1,)`,
+         `>>` gives 0 and 135.
+       - When the relay fails for *any* reason it closes its end of
+         the pipe under the still-writing send, which is then killed
+         by `SIGPIPE` before the real error can be reported — so
+         `zfs send >/dev/full` gave exit 141 and complete silence
+         instead of `ENOSPC`. Fixed by blocking `SIGPIPE` across the
+         relay so the write fails `EPIPE` instead, consuming the
+         signal we provoked before restoring the caller's mask, and
+         letting the relay's error win over whatever `func()`
+         returned. FIFO destinations return long before any of this
+         and keep ordinary pipe semantics, SIGPIPE included
+         (confirmed: `zfs send | head -c 100` still exits 141).
+         - Deliberately left imperfect: `dmu_send.c` collapses every
+           output failure to `SET_ERROR(EINTR)` (`dmu_send.c:278` and
+           ~9 similar sites), destroying the real errno kernel-side,
+           and libzfs prints its warning from inside `func()` —
+           before the relay is joined and its error is known. So the
+           message still reads "signal received" or "Broken pipe"
+           rather than "No space left on device". Fixing that means
+           plumbing the real errno out of `dmu_send()` and moving the
+           report outside the relay: a `module/` + `lib/` change,
+           not attempted.
+     - **Validation (2026-08-30).** Each of the three commits has a
+       ZTS regression test that fails without it and passes with it,
+       the other two unaffected — so all three are independently
+       demonstrated, not just collectively: `rsend/
+       send_dryrun_parsable` (base 300/300 corrupt, patched 0/300),
+       `rsend/send_append_redirect` (base exits 269 under ksh, i.e.
+       SIGPIPE), `rsend/send_dest_error` (base exit 141 and silent;
+       Linux-gated with `log_unsupported`, since the relay is
+       Linux-only). A 26-test `rsend` batch: 25 PASS, 1 SKIP
+       (`rsend_008_pos`, known), 1 FAIL (`send-c_verify_contents`) —
+       which fails on base identically and passes in isolation, i.e.
+       pre-existing order dependence, not a regression. The base run
+       also failed `send-c_stream_size_estimate`, the original CI
+       symptom, which these fixes repair. All three commits pass
+       `scripts/commitcheck.sh`. Non-regression on glibc/FreeBSD
+       still cannot be verified locally, same limitation as every
+       other core-code change here.
    - **`procfs_list_stale_read` — root cause found and fixed
      (2026-08-24).** Confirmed directly (real kernel module loaded,
      real `/proc/spl/kstat/zfs/<pool>/txgs`, real `cat`): the stale

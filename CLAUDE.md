@@ -91,17 +91,18 @@ tracks upstream `master`.
   results (see item 6 under "Local build & test setup" below) — CI's
   actual Alpine VM has `useradd`/`groupadd`/etc. available even though
   they're not in `qemu-3-deps-vm.sh`'s explicit package list.
-- **Git identity convention**: real fixes intended for upstream are
-  authored/signed-off as `Alexander Moch <mail@alexmoch.com>`, matching
-  the precedent set by the three existing `claude/*` branches (DCO
-  sign-off needs to trace to a real accountable person). Meta/non-
-  upstream-bound commits (docs, `claude-meta` branch) use the canonical
-  `Claude <noreply@anthropic.com>` identity instead — no model name in
-  it (matches `github.com/claude`'s convention), since the model running
-  a given session may vary (Sonnet, Opus, Fable, ...). No default git
-  identity is configured repo-wide — set it explicitly per commit (e.g.
-  `git -c user.name=... -c user.email=... commit ...`) so the two never
-  get mixed up by accident.
+- **Git identity convention (superseded 2026-08-30)**: everything in
+  this fork — upstream-bound fixes and meta/docs commits alike — is
+  authored, committed and signed off as `m68k.io <noreply@m68k.io>`.
+  This replaces the earlier split convention (`Alexander Moch
+  <mail@alexmoch.com>` for fixes, `Claude <noreply@anthropic.com>` for
+  meta commits), which the user retired; neither of those identities
+  should be used now. No default git identity is configured repo-wide —
+  set it explicitly per commit (e.g. `git -c user.name=...
+  -c user.email=... commit ...`). Note `scripts/commitcheck.sh`
+  requires a well-formed `Signed-off-by: Name <email>` line and
+  enforces **both** the subject and every body line at ≤72 chars; run
+  it per commit before pushing.
 - **Never put PR numbers or upstream commit SHAs in `claude-meta`
   commit messages (2026-08-24).** GitHub cross-references a PR's
   timeline from a bare `#NNNN`/`owner/repo#NNNN` mention (or a SHA
@@ -249,8 +250,10 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `baseline`'s local-only commit) is open too, and `#18972` (the
   CDDL-boilerplate fix) is already merged — confirming what the
   `baseline` rebase auto-detected as already-upstream a few days
-  ago. Remaining seven branches: user will submit them personally
-  once the first batch merges — not something to pick up unprompted.
+  ago. Remaining six branches (was seven;
+  `send_progress_race` withdrawn 2026-08-30): user will submit them
+  personally once the first batch merges — not something to pick up
+  unprompted.
 - **Real CI results read back (2026-08-24)**, after all ten `claude/*`
   branches' first CI runs finally cleared the runner backlog. Every
   branch's *own* fix validated for real, matching what local testing
@@ -470,43 +473,21 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   up). This was a deliberate choice to defer burning CI cycles on
   this batch, not a standing policy — future pushes to these branches
   should get real CI runs as normal unless told otherwise again.
-- **Real bug found and fixed in `claude/send_progress_race`
-  (2026-08-24), correcting a wrong "PASS" claim above.** User asked
-  to check why the non-Alpine legs of the orphaned `combined-review`
-  run (`32758399185`) all failed — that run itself was stale/deleted
-  branch noise, but the failure inside it was real: every glibc
-  platform (`ubuntu24`, `fedora44`, `almalinux10`, `debian13`,
-  `centos-stream9/10`, `ubuntu22/26`, `almalinux8/9`, `debian12`)
-  failed to even *build*, with `lib/libzfs/libzfs_sendrecv.c:1099:16:
-  error: ignoring return value of 'write' declared with attribute
-  'warn_unused_result' [-Werror=unused-result]` — `send_print_line()`
-  used `(void) write(...)`, and a bare `(void)` cast does not silence
-  `-Wunused-result` for glibc's fortified (`-D_FORTIFY_SOURCE=3`)
-  `write()`, so `-Werror` turned it into a hard build failure on every
-  glibc target. musl doesn't fortify `write()` the same way, which is
-  why this never showed up in any local Alpine testing.
-  Checked further and found this wasn't just the stale run: the real
-  CI run for `claude/send_progress_race`'s own branch (`32657510068`,
-  2026-08-23) hit the identical error on 3 of its 6 DEBUG-matrix
-  platforms (`fedora44`, `almalinux10`, `debian13`) — the branch's
-  overall run conclusion was `failure`, not the `PASS` recorded above;
-  that entry was written from the ZTS test result alone, without
-  noticing the run's own build had failed elsewhere in the same
-  matrix. Fixed (still open, not yet re-merged upstream) by capturing
-  `write()`'s result in a `__maybe_unused` variable instead of casting
-  it to `void` — the same idiom already used for this exact situation
-  elsewhere in the tree (`lib/libspl/backtrace.c`,
-  `cmd/zstream/zstream_backtrace.c`). Verified it compiles clean
-  locally (musl can't reproduce the glibc-specific warning itself, so
-  this only confirms no regression, not that the original error is
-  gone); amended into the existing commit (`9dcd82329` ->
-  `9ce9083b1`) since it's a fix to that same commit's own bug, not a
-  new logical change, and force-with-leased the result to `origin`.
-  **Unlike the rebase batch above, this push's CI run was deliberately
-  left running** (not cancelled) specifically to get real confirmation
-  the glibc build error is actually gone — check
-  `gh run list --repo m68k-io/zfs --branch claude/send_progress_race`
-  for the outcome next session if not already known.
+- **Retired (was: "Real bug found and fixed in
+  `claude/send_progress_race`", 2026-08-24).** The branch itself was
+  withdrawn 2026-08-30 as a misdiagnosis and deleted, so its CI
+  follow-up is moot; full history is in `claude-notes/`. The one
+  durable lesson from it, which applies to any core-code change here:
+  a bare `(void) write(...)` does **not** silence `-Wunused-result`
+  for glibc's fortified (`-D_FORTIFY_SOURCE=3`) `write()`, so
+  `-Werror` turned it into a hard *build* failure on every glibc CI
+  target while musl built it clean — invisible to all local Alpine
+  testing. Capture the result in a `__maybe_unused` variable instead,
+  the idiom already used in `lib/libspl/backtrace.c` and
+  `cmd/zstream/zstream_backtrace.c`. Second lesson: that branch's run
+  was recorded as `PASS` from the ZTS result alone while the run's own
+  build had failed on 3 of 6 platforms — read the run conclusion, not
+  just the test result.
 - **This VM's kernel switched from `linux-virt` to `linux-stable`
   (2026-08-24), to match what `master`'s CI now provisions.** Prompted
   by the user asking to check out `master` and evaluate what the VM
@@ -553,7 +534,7 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   - **Closed/withdrawn**: `get_prop_empty_value` (`#18983`).
   - **No PR yet**: `dnode_rele_uaf` (cluster 4), `getopt_long_permute`
     (`zfs_get_006_neg`, new this session), `mkbusy_kill_race`,
-    `send_progress_race`, `lzc_send_wrapper_splice_race`,
+    `lzc_send_wrapper_splice_race` (three commits as of 2026-08-30),
     `ksh_alpine_prebuilt` (new this session — see below; not
     upstream-submittable as-is since it depends on a personal fork's
     GitHub release, see its own commit message).
@@ -703,3 +684,32 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   using any of it). `~/Development/ksh`'s unrelated in-progress
   `splice_race.c`/kernel-`do_splice()` investigation (modified
   `CLAUDE.md` + untracked file, see that project) was never touched.
+- **Send-relay bugs re-investigated; root cause proven, one branch
+  withdrawn (2026-08-30).** Asked to review
+  `claude/lzc_send_wrapper_splice_race` and `claude/send_progress_race`
+  and say whether the bug was properly fixed. It was not, in either
+  branch. The proven mechanism, the corrected fix, and two further bugs
+  found in the same function are written up in cluster 6 of
+  `claude-notes/INVESTIGATIONS.md`; branch state is in
+  `claude-notes/BRANCHES.md`. Headlines:
+  - `splice()` with a `NULL` `off_out` writes back the file position it
+    latched on entry **even when it moved zero bytes**, rewinding the
+    caller's own output. Proven by `strace` and an isolated C repro,
+    not inferred.
+  - The published fix did not work — its unconditional resync `lseek()`
+    re-did the same rewind (200/200 corrupt when actually measured).
+    The resync is now conditional on having relayed something.
+  - `claude/send_progress_race` was a misdiagnosis: the progress thread
+    only ever writes to `stderr`, and the corruption is on `stdout`.
+    Branch deleted; tip kept as tag `dropped/send_progress_race`.
+  - Two more bugs in `lzc_send_wrapper()`, both pre-existing and both
+    now fixed with their own tests: `zfs send >>file` never worked
+    (`splice()` rejects `O_APPEND`), and any relay failure killed the
+    send with `SIGPIPE` before the real error could be reported.
+  - **`claude/combined-review-11` is stale** — it carries the withdrawn
+    commit and the superseded fix. Regenerate it before use.
+  - Method note worth keeping: the in-tree `zfs` binary loads
+    `libzfs_core.so.3` from `/usr/lib` unless `LD_LIBRARY_PATH` points
+    at `.libs`. Two A/B runs here silently tested the *installed*
+    library before this was caught — always confirm with `ldd` which
+    library a validation run is actually exercising.

@@ -721,12 +721,46 @@ struct send_worker_ctx {
 	off_t pos;
 };
 
+/*
+ * One splice()-shaped read-then-write-it-all pass, for destinations
+ * splice() won't take.  Returns what it moved, 0 at EOF, -1 on error.
+ */
+static ssize_t
+send_copy(int from, int to, char *buf, size_t bufsiz)
+{
+	ssize_t rd = read(from, buf, bufsiz);
+	if (rd <= 0)
+		return (rd);
+
+	for (ssize_t off = 0; off < rd; ) {
+		ssize_t wr = write(to, buf + off, rd - off);
+		if (wr == -1) {
+			if (errno == EINTR)
+				continue;
+			return (-1);
+		}
+		if (wr == 0) {
+			/*
+			 * Not progress, and not an error we can name: keep
+			 * going and we spin here forever holding the pipe
+			 * open, so call it one.
+			 */
+			errno = EIO;
+			return (-1);
+		}
+		off += wr;
+	}
+	return (rd);
+}
+
 static void *
 send_worker(void *arg)
 {
 	struct send_worker_ctx *ctx = arg;
 	unsigned int bufsiz = max_pipe_buffer(ctx->from);
 	sigset_t block_mask;
+	char *buf = NULL;
+	boolean_t moved = B_FALSE;
 	ssize_t rd = -1;
 
 	/*
@@ -750,14 +784,40 @@ send_worker(void *arg)
 	}
 
 	for (;;) {
-		rd = splice(ctx->from, NULL, ctx->to,
-		    ctx->seekable ? &ctx->pos : NULL, bufsiz,
-		    SPLICE_F_MOVE | SPLICE_F_MORE);
+		if (buf != NULL) {
+			rd = send_copy(ctx->from, ctx->to, buf, bufsiz);
+		} else {
+			rd = splice(ctx->from, NULL, ctx->to,
+			    ctx->seekable ? &ctx->pos : NULL, bufsiz,
+			    SPLICE_F_MOVE | SPLICE_F_MORE);
+			/*
+			 * Not every destination takes splice() at all: an
+			 * O_APPEND fd refuses whatever off_out it is given,
+			 * and anything whose file_operations lack
+			 * splice_write refuses outright.  Both say EINVAL
+			 * before moving a byte, so fall back to relaying by
+			 * hand.  Only worth doing while the relay has moved
+			 * nothing: the two paths track the destination's
+			 * position differently, and swapping mid-stream
+			 * would interleave them.
+			 */
+			if (rd == -1 && errno == EINVAL && !moved) {
+				if ((buf = malloc(bufsiz)) == NULL) {
+					err = errno;
+					break;
+				}
+				continue;
+			}
+		}
 		if ((rd == -1 && errno != EINTR) || rd == 0)
 			break;
+		if (rd > 0)
+			moved = B_TRUE;
 	}
 
-	err = (rd == -1) ? errno : 0;
+	if (err == 0)
+		err = (rd == -1) ? errno : 0;
+	free(buf);
 	close(ctx->from);
 	return ((void *)(uintptr_t)err);
 }
@@ -803,14 +863,12 @@ lzc_send_wrapper(int (*func)(int, void *), int orig_fd, void *data)
 	pthread_t send_thread;
 	struct send_worker_ctx ctx = {.from = rw[0], .to = orig_fd};
 	/*
-	 * O_APPEND fds reject an explicit off_out with EINVAL, and they
-	 * can't be rewound into anyway -- every write goes to EOF whatever
-	 * the file position says.  Leave those, and anything unseekable,
-	 * on the implicit offset.
+	 * Anything unseekable stays on the implicit offset.  An O_APPEND
+	 * fd is seekable but rejects an explicit off_out; the relay finds
+	 * that out for itself and falls back to copying by hand, leaving
+	 * the position it never moved alone.
 	 */
-	off_t start = -1;
-	if (fdflags != -1 && !(fdflags & O_APPEND))
-		start = lseek(orig_fd, 0, SEEK_CUR);
+	off_t start = lseek(orig_fd, 0, SEEK_CUR);
 	ctx.seekable = (start != -1);
 	ctx.pos = start;
 	if ((err = pthread_create(&send_thread, NULL, send_worker, &ctx))

@@ -583,19 +583,28 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     correctness failure in any of the three timeout logs.
     **Submitted upstream from `alex-moch/zfs`'s `alpine/dnode_rele_uaf`
     branch, open for review since 2026-08-30** (deliberately not
-    written as a bare issue/PR number here — see the git-identity
-    working principle above on why). `ryao` approved; `behlendorf` (lead maintainer) suggested
-    a simplification of the assert placement (move it whole, before
-    `mutex_exit()`, and drop the now-redundant `#ifdef ZFS_DEBUG`
-    wrapper around it — `ASSERT()`'s own non-debug expansion never
-    evaluates its operand, so the guard added nothing). Verified his
-    claim independently against the actual macro/header before
-    applying it, then caught on a follow-up self-review that the
-    incorporated version had also grown an unrequested explanatory
-    paragraph beyond what he asked for — trimmed to match his diff
-    exactly. `claude/dnode_rele_uaf` and `claude/combined-review-11`
-    both updated and force-pushed to reflect the final, reviewed
-    shape. Full account: `LEARNING-dnode-rele-uaf.md` §6 (untracked,
+    written as a bare issue/PR number or head SHA here — see the
+    git-identity working principle above on why). The PR itself is
+    still at the pre-review commit; none of what follows has been
+    pushed there yet. `ryao` approved; `behlendorf` (lead maintainer)
+    suggested moving the assert whole to before `mutex_exit()` *and*
+    dropping the `#ifdef ZFS_DEBUG` guard around it. The first half is
+    incorporated and correct. **The second half was wrong and briefly
+    shipped anyway**: `zrl_owner()` is declared only under `ZFS_DEBUG`
+    in `zrlock.h` (checked via `grep`, which found the matching line
+    but not the `#ifdef`/`#endif` two lines around it, so the check
+    looked complete but wasn't) — dropping the guard broke
+    `checkstyle`'s non-debug kernel module build with an implicit-
+    declaration error, caught for real on `m68k-io/zfs` CI
+    (2026-09-02), not by any local build (every local build here uses
+    `--enable-debug`). Guard restored to exactly upstream's placement,
+    verified this time with an actual `-UZFS_DEBUG` syntax-only
+    compile, not just a header read. Commit message corrected to
+    match; `claude/dnode_rele_uaf` force-pushed. `claude/combined-
+    review-11` still carries the broken intermediate state and needs
+    rebuilding — not done, out of scope for now (see the branch's own
+    history for why). Full account, including the verbosity trim that
+    preceded this: `LEARNING-dnode-rele-uaf.md` §4 and §6 (untracked,
     root of this repo).
   - **`claude/combined-review-11` (2026-08-27)**: replaces the deleted
     `combined-review-9`/`-10`. Six commits on the rebased `baseline`:

@@ -580,8 +580,23 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     infra timeouts, not correctness (`ubuntu22`: `Run tests` timed out
     at 270 min; `centos-stream9`/`centos-stream10`: `Build modules`
     timed out at 30 min) — no cluster-4 signature or any other
-    correctness failure in any of the three timeout logs. Still not
-    yet submitted upstream.
+    correctness failure in any of the three timeout logs.
+    **Submitted upstream from `alex-moch/zfs`'s `alpine/dnode_rele_uaf`
+    branch, open for review since 2026-08-30** (deliberately not
+    written as a bare issue/PR number here — see the git-identity
+    working principle above on why). `ryao` approved; `behlendorf` (lead maintainer) suggested
+    a simplification of the assert placement (move it whole, before
+    `mutex_exit()`, and drop the now-redundant `#ifdef ZFS_DEBUG`
+    wrapper around it — `ASSERT()`'s own non-debug expansion never
+    evaluates its operand, so the guard added nothing). Verified his
+    claim independently against the actual macro/header before
+    applying it, then caught on a follow-up self-review that the
+    incorporated version had also grown an unrequested explanatory
+    paragraph beyond what he asked for — trimmed to match his diff
+    exactly. `claude/dnode_rele_uaf` and `claude/combined-review-11`
+    both updated and force-pushed to reflect the final, reviewed
+    shape. Full account: `LEARNING-dnode-rele-uaf.md` §6 (untracked,
+    root of this repo).
   - **`claude/combined-review-11` (2026-08-27)**: replaces the deleted
     `combined-review-9`/`-10`. Six commits on the rebased `baseline`:
     `dnode_rele_uaf`, `getopt_long_permute`, `lzc_send_wrapper_splice_

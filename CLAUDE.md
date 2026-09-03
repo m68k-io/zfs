@@ -796,3 +796,15 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   not deleted) and `claude/lzc_send_wrapper_splice_race` (all three
   commits). Five commits total on `baseline`, all cherry-picked clean,
   build verified.
+
+- **`alpine/combined` on `alex-moch/zfs` confirmed fixed (2026-09-03).**
+  The missing-new-file checkstyle failure (previous entry) was
+  specific to how the send-relay commits landed there, not a bug in
+  `claude/lzc_send_wrapper_splice_race` itself -- re-applied via
+  `git cherry-pick` of the exact commits from `m68k-io/zfs` (not a
+  manual/patch-based re-creation), author reset to Alexander Moch,
+  `Signed-off-by:` line corrected to match. `checkstyle` now passes
+  clean (12m10s). `zfs-qemu`'s `alpine3-24` leg hit the same
+  `CONFIG_MODULES` stale-VM-state flake documented earlier this
+  session (unrelated to any code change, same signature as before);
+  the other 5 platforms were still running as of this check.

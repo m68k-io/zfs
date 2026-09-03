@@ -519,7 +519,9 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   confirmed the actual point of the switch: `modprobe scsi_debug
   dev_size_mb=64` now creates a real synthetic disk (`CONFIG_SCSI_DEBUG
   =m` live), which it could not on `linux-virt`.
-- **PR tracker (2026-08-27)** — every `claude/*` fix branch's upstream
+- **PR tracker, superseded — see the 2026-09-02 update below for
+  current status.** (2026-08-27 snapshot, kept for history) — every
+  `claude/*` fix branch's upstream
   status as of this writing (see `claude-notes/BRANCHES.md` for the
   per-branch technical detail; this is just the submission status):
   - **Merged**: `alpine_ci_deps` (`#18988`), `mmp` (`#18979`),
@@ -737,3 +739,32 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     at `.libs`. Two A/B runs here silently tested the *installed*
     library before this was caught — always confirm with `ldd` which
     library a validation run is actually exercising.
+
+- **PR tracker update (2026-09-02) — three more merged, fork resynced.**
+  `dnode_rele_uaf` (cluster 4), `zstd_asan_decl`, and `mkbusy_kill_race`
+  all merged upstream since the last sync -- confirmed via patch-id
+  match against the merged commits (`dnode_rele_uaf` matched exactly;
+  the other two were reworded slightly during review, confirmed
+  functionally identical by checking the actual merged file content
+  instead, same pattern as `procfs_stale_read_portable` before). User
+  synced this fork's `master`; `baseline` rebased onto it (trivial --
+  one commit, the permanent `**DEBUG**` runner-restriction commit),
+  force-pushed. The three merged branches deleted, local + `origin`.
+  The four remaining active branches (`getopt_long_permute`, `zfs_get_
+  006_posixly_correct`, `lzc_send_wrapper_splice_race`, `ksh_alpine_
+  prebuilt`) all rebased onto the new `baseline` clean, force-pushed.
+  **`claude/combined-review-11` remains stale** (unchanged from the
+  note above -- still carries the withdrawn `send_progress_race`
+  commit, the pre-review `dnode_rele_uaf` fix, the old single-commit
+  `lzc_send_wrapper_splice_race`, and `getopt_long_permute` instead of
+  its replacement `zfs_get_006_posixly_correct`) -- **deliberately not
+  touched**, per standing instruction to leave that branch alone.
+  Current, accurate submission status:
+  - **Merged**: `dnode_rele_uaf`, `zstd_asan_decl`, `mkbusy_kill_race`,
+    plus everything in the 2026-08-27 snapshot above.
+  - **No PR yet**: `getopt_long_permute` (superseded by `zfs_get_006_
+    posixly_correct`, see that branch's entry in `claude-notes/
+    BRANCHES.md` -- kept around at the user's call, not deleted),
+    `zfs_get_006_posixly_correct`, `lzc_send_wrapper_splice_race`,
+    `ksh_alpine_prebuilt` (not upstream-submittable as-is, see its own
+    commit message).

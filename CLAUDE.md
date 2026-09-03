@@ -768,3 +768,31 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     `zfs_get_006_posixly_correct`, `lzc_send_wrapper_splice_race`,
     `ksh_alpine_prebuilt` (not upstream-submittable as-is, see its own
     commit message).
+
+- **Combined-review branches no longer numbered (2026-09-03).** Going
+  forward there is exactly one `claude/combined-review` branch,
+  force-pushed/rebuilt as needed rather than incremented
+  (`-9`/`-10`/`-11`) each time -- per explicit instruction. The old
+  `claude/combined-review-11` (stale, see the note above) deleted,
+  local + `origin`, along with its and the meanwhile-merged
+  `dnode_rele_uaf`/`zstd_asan_decl`/`mkbusy_kill_race` branches'
+  orphaned workflow runs (8 total).
+  `claude/ksh_alpine_prebuilt` updated: the `m68k-io/ksh` release it
+  pointed at is gone (fork deleted); now installs the new vanilla
+  `alex-moch/ksh` `v1.0.10` release instead (see that repo's own
+  release notes -- built from the plain upstream tag with Clang, no
+  patches, verified static/dynamic + apk variants all pass `bin/
+  shtests` clean). This means the fork's Alpine CI **no longer
+  installs a ksh with cluster 5's fixes** -- whether that bug is even
+  reachable on 1.0.10 specifically was never conclusively established
+  (see `claude-notes/BRANCHES.md`), and the patched-ksh release this
+  depended on no longer exists. If cluster 5 resurfaces on CI, this is
+  why.
+  `claude/combined-review` rebuilt from `baseline` with the two
+  remaining unmerged branches: `claude/ksh_alpine_prebuilt` and
+  `claude/getopt_long_permute` (the forced-`+` product-code fix,
+  deliberately chosen over `claude/zfs_get_006_posixly_correct` for
+  this branch -- the latter stays as a separate, unused alternative,
+  not deleted) and `claude/lzc_send_wrapper_splice_race` (all three
+  commits). Five commits total on `baseline`, all cherry-picked clean,
+  build verified.

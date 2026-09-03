@@ -808,3 +808,14 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `CONFIG_MODULES` stale-VM-state flake documented earlier this
   session (unrelated to any code change, same signature as before);
   the other 5 platforms were still running as of this check.
+
+- **`alpine/combined` zfs-qemu results, as they land (2026-09-03).**
+  `alpine3-24`: failed, same `CONFIG_MODULES` stale-VM infra flake as
+  before -- not a regression. `freebsd15-1r`: failed, but the entire
+  "unexpected" result list (both VMs) is exactly one line -- `SKIP
+  rsend/send_dest_error (expected PASS)` -- and that test is
+  deliberately Linux-gated (`log_unsupported`) since it exercises the
+  `splice()`-based relay, which is Linux-only; it just isn't in a
+  "known expected" mask yet since it's a brand-new test. Not a
+  regression either. `almalinux10`/`ubuntu26`/`fedora44`/`debian13`
+  still running as of this check.

@@ -43,13 +43,18 @@ function alpine() {
   sudo update-extlinux
   echo "##[endgroup]"
 
-  echo "##[group]Install ksh93 from Source"
-  # Build the actively-maintained "1.0" branch instead of the
-  # default "dev" branch for a reproducible, stable build.
-  git clone --depth 1 --branch 1.0 https://github.com/ksh93/ksh.git /tmp/ksh
-  cd /tmp/ksh
-  ./bin/package make
-  sudo ./bin/package install /
+  echo "##[group]Install ksh93 (prebuilt)"
+  # Prebuilt vanilla ksh93 93u+m 1.0.10 for Alpine, published from
+  # alex-moch/ksh -- avoids a from-source build (autoconf/mamake, a
+  # full toolchain) on every run. No patches; same content as
+  # upstream's v1.0.10 tag, just packaged.
+  # One unretried fetch here once timed out against github.com and took
+  # the whole run with it, so give it the same patience apk gets.
+  curl -fLO --retry 3 --retry-all-errors --retry-delay 5 \
+    --connect-timeout 30 \
+    https://github.com/alex-moch/ksh/releases/latest/download/ksh93-alpine3.24-x86_64.apk
+  sudo apk add --allow-untrusted ./ksh93-alpine3.24-x86_64.apk
+  rm ksh93-alpine3.24-x86_64.apk
   echo "##[endgroup]"
 }
 

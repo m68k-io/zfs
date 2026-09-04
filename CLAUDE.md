@@ -990,3 +990,90 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `#5479` as an "unrelated expected SKIP" (it is the kmemleak false
   positive, and it puts an upstream issue URL in a commit message);
   and submitting the unmerged fixes upstream.
+
+- **Upstream issue opened: `openzfs/zfs#19052`, "The Alpine Linux CI
+  Runner does not pass the ZFS Test Suite (yet)" (2026-09-04).** The
+  user drafted it from a draft of mine, trimmed it heavily, and posted
+  it under their own account. Live and unanswered as of this writing.
+  A framing correction found while writing it, worth keeping: **Alpine
+  is not in upstream's default CI matrix at all.** The support is
+  merged (`qemu-2-start.sh` knows `alpine3-24`, `qemu-3-deps-vm.sh`
+  has an `alpine()`, `qemu-6-tests.sh` handles it), but `alpine3-24`
+  appears in none of `zfs-qemu.yml`'s four `os_selection` lists, so it
+  only runs via `workflow_dispatch` with `specific_os`. The six-OS
+  list that *looks* like the default matrix in a local checkout is
+  this fork's own `**DEBUG**` commit. Do not repeat that mistake.
+  The issue's four items and what each needs:
+  - **ksh93** -- *not a blocker*, it works today. Upstream's
+    `alpine()` does `git clone --depth 1 --branch 1.0`, a moving
+    branch head rather than a pinned release, so CI silently tracks
+    whatever lands there. Alpine has no ksh93 package at all (only
+    `loksh`/`mksh`/`oksh`, pdksh derivatives), so it is the one
+    platform that cannot `apk add ksh`. Posed as pinned-tag build vs.
+    prebuilt personal package, with the user's own supply-chain
+    objection to their own option stated in the issue.
+  - **`is_kmemleak()`** -- self-serve, the user will PR it.
+  - **`zfs_get_006_neg`** -- *blocked on a maintainer decision*, five
+    options enumerated in the issue: `+` at all six call sites (the
+    branch), `+` at `zfs_do_get` only, a `getenv("POSIXLY_CORRECT")`
+    shim, a musl-scoped mask, or dropping the ten ordering cases. The
+    question underneath, which is the project's to answer: **is
+    `zfs get all -r` supposed to fail?**
+  - **`send-c_stream_size_estimate`** -- *blocked on someone else*.
+    Left in the issue as diagnostic data, explicitly not vouched for.
+
+- **Findings deliberately kept out of that issue (2026-09-04)** --
+  recorded here so they are not lost:
+  - **`zfs program` mis-parses script arguments.** Script args land at
+    `argv[2]` after `argc -= optind`, so `zfs program tank script.zcp
+    -n` silently eats `-n` as the CLI's own dry-run flag and drops it
+    from the script's argv; `-t`/`-m` additionally swallow the
+    following argument. An unconditional `+` on
+    `zfs_do_channel_program` fixes it and the only behaviour that
+    changes is behaviour that was already broken. This is the one
+    place where the `+` change fixes a real bug rather than tightening
+    something that works, so it is a *supporting argument* for the
+    branch's chosen option -- the user omitted it deliberately to keep
+    the issue short.
+  - **The `splice()` mechanism is verified against stock kernel
+    source**, not just asserted. `fs/splice.c` at upstream
+    `45c13f3f9e3b`: with `off_out == NULL`, `offset` is latched from
+    `out->f_pos` before `do_splice_from()` and written back after it
+    unconditionally, with no check on bytes moved. Relay nothing and
+    the position is reset, discarding a concurrent writer's progress.
+    Exactly what the branch's commit message claims.
+  - **There is a kernel-side angle nobody has raised upstream.**
+    `~/Development/linux` carries a local branch
+    `claude/splice-fpos-race` whose HEAD ("splice: serialize
+    `->f_pos` updates against read/write/lseek", 2026-08-27) patches
+    this same race in the kernel. So the project has fixes at both
+    layers and has never resolved which one is correct. A reviewer of
+    the ZFS-side fix may reasonably ask. **Caution when reading
+    `fs/splice.c` in that tree: HEAD is the patched version, not
+    stock.** Check the parent commit for upstream behaviour.
+
+- **Final CI on the posted branches (2026-09-04).** `alpine/combined`
+  finished **green on all six platforms**, run conclusion `success`.
+  `alpine/baseline` is red on `alpine3-24` alone, everything else
+  green -- so the two run links in the issue show the contrast
+  directly. `fedora44` failed twice and passed on re-run on both
+  branches; `delegate/zfs_allow_003_pos` failed once on `m68k-io` and
+  passed on both `alex-moch` branches on an identical tree. Both
+  ordinary flakes.
+
+- **Email sent to Brian Behlendorf (2026-09-04)** on an existing
+  thread, pointing at the issue with a per-item triage: `is_kmemleak`
+  self-serve, `zfs_get_006_neg` needs a decision, the send bug needs
+  an owner, ksh93 works today and is only worth a discussion. The
+  point of the mail was visibility, not extracting an answer -- the
+  issue is long and easy to scroll past.
+
+- **Still open (2026-09-04).** The `curl --retry` hardening for the
+  prebuilt-ksh93 step. Two cosmetic nits in the posted issue body (one
+  un-backticked `zfs get`) the user chose to leave. `Component: CI`
+  and `Component: Test Suite` labels, if the user has rights. And the
+  `alex-moch` copy of the getopt commit still carries the
+  pre-correction message, which the issue links to directly -- the
+  corrected commit is on `m68k-io`'s `claude/getopt_long_permute`,
+  cherry-pickable without changing the tree. The user is aware and
+  chose to leave it while CI is green.

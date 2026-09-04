@@ -546,3 +546,23 @@ underlying root-cause analysis behind each fix.
   `getopt_long_permute`, still not deleted.
 - 34 cancelled workflow runs deleted from `m68k-io/zfs`; failed runs
   kept for comparison history.
+
+## Update (2026-09-04, later): getopt commit message corrected
+
+- **`claude/getopt_long_permute` message rewritten**, code untouched.
+  Three factual errors fixed: it claimed the change affects `zfs
+  unmount`/`unshare` (those route through `unshare_unmount()`, which
+  uses plain `getopt()` and is not modified); it cited an upstream
+  issue URL for a skip that is actually the kmemleak false positive;
+  and it called `send-c_stream_size_estimate` a "pre-existing
+  unrelated issue", which it is not — that is the bug the send-relay
+  commits fix.
+- **`claude/combined-review` rebuilt** on the corrected commit. Diffed
+  against the CI-validated tree beforehand: byte-identical, so the
+  full-matrix validation still stands and the re-triggered runs were
+  cancelled rather than spent again.
+- **The `alex-moch/zfs` copy of that commit still carries the old
+  message**, and the upstream issue links straight to it. Correcting
+  it there means cherry-picking the corrected commit and rebuilding
+  `alpine/combined`; the tree does not change, so CI stays green. The
+  user is aware and chose to leave it for now.

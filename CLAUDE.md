@@ -825,3 +825,18 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `freebsd15-1r` reproduced the exact same, and only, result:
   `SKIP rsend/send_dest_error` -- confirms this is a stable, correct,
   by-design result, not a fluke. Other platforms still pending.
+
+- **Two more platforms in (2026-09-04).** `alpine3-24`: built clean
+  this time (no repeat of the `CONFIG_MODULES` flake, confirming it
+  really was a one-off VM-state issue). Only unexpected result: `SKIP
+  cli_root/zfs_get/zfs_get_009_pos` -- unrelated to anything here,
+  fallout from upstream's own `06d334b9e` "drop stale expected-failure
+  masks" (already in our synced baseline) removing this test's mask
+  based on glibc-only testing; that commit's own message admits it
+  isn't proof against other platforms. `zfs_get_006_neg` itself
+  **passed**, confirming `getopt_long_permute` works here too.
+  `debian13`: one real FAIL, `fault/auto_spare_001_pos` (ZED/`zinject`
+  hot-spare fault injection) -- unrelated to any of the three fixes
+  in this branch, only failed on one of two VMs, matches ordinary ZTS
+  flakiness rather than a regression. `fedora44`/`almalinux10`/
+  `ubuntu26` still pending.

@@ -952,13 +952,20 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   and it fits inside the ZTS timeout with room to spare. The ~10x
   jump in the two `send_realloc` tests is the restored full workload.
 
-- **Flakes seen this round, all on current master, none ours
-  (2026-09-04).** `send-c_stream_size_estimate` (FAIL on baseline,
-  PASS on combined -- so *flaky* on master, not the deterministic
-  failure an earlier note implied), `delegate/zfs_allow_003_pos`
-  (FAIL on one m68k-io run, PASS on both `alex-moch` branches on an
-  identical tree), and `fedora44` failing twice before passing on
-  re-run. None touch any subsystem the six commits change.
+- **Flakes seen this round (2026-09-04).**
+  `delegate/zfs_allow_003_pos` (FAIL on one m68k-io run, PASS on both
+  `alex-moch` branches on an identical tree) and `fedora44` failing
+  twice before passing on re-run. Neither touches any subsystem the
+  six commits change.
+  **Correction, same day**: `send-c_stream_size_estimate` was briefly
+  listed here as a third flake. It is not. Baseline FAIL -> combined
+  PASS is the *fix working*: the "don't let the send relay rewind the
+  output fd" commit addresses precisely this test's corruption, where
+  `splice()`'s latched-offset write-back rewinds the fd on a dry run
+  and the `size` line lands on top of the `full` line. Root-caused
+  10/10 deterministically (cluster 6 in `INVESTIGATIONS.md`); calling
+  it flaky read a fix as noise, in the one direction that would have
+  hidden a working fix.
 
 - **The prebuilt-ksh93 step is a new single point of failure
   (2026-09-04, unresolved).** `m68k-io`'s `claude/combined-review`

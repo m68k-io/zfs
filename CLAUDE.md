@@ -819,3 +819,9 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   "known expected" mask yet since it's a brand-new test. Not a
   regression either. `almalinux10`/`ubuntu26`/`fedora44`/`debian13`
   still running as of this check.
+
+- **Rebase re-run confirms it (2026-09-04).** After the branch got
+  rebased and re-pushed, `checkstyle` passed again clean, and
+  `freebsd15-1r` reproduced the exact same, and only, result:
+  `SKIP rsend/send_dest_error` -- confirms this is a stable, correct,
+  by-design result, not a fluke. Other platforms still pending.

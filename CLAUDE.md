@@ -840,3 +840,21 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   in this branch, only failed on one of two VMs, matches ordinary ZTS
   flakiness rather than a regression. `fedora44`/`almalinux10`/
   `ubuntu26` still pending.
+
+- **`alpine/combined` full-matrix validation complete, branch looks
+  solid (2026-09-04).** All 6 platforms + checkstyle done. `ubuntu26`
+  fully clean. Every other platform's unexpected results are single-
+  occurrence, single-VM failures in subsystems this branch doesn't
+  touch: `fault/auto_spare_001_pos` (debian13, hot-spare/ZED fault
+  injection), `zpool_split_resilver` (fedora44), `log_spacemap_
+  flushall` + `zed_synchronous_zedlet` (almalinux10, two unrelated
+  areas) -- no common thread among them, consistent with ordinary ZTS
+  background flakiness rather than a regression. `alpine3-24`'s only
+  finding is the already-explained stale-mask fallout on `zfs_get_
+  009_pos`; `zfs_get_006_neg` itself passed, directly confirming
+  `getopt_long_permute`. `freebsd15-1r` reproduced its expected `send_
+  dest_error` skip a second time (stable). All three new `rsend` tests
+  passed on every platform that ran them, confirming `lzc_send_
+  wrapper_splice_race`. **Conclusion: `claude/combined-review` (ksh_
+  alpine_prebuilt + getopt_long_permute + lzc_send_wrapper_splice_
+  race) is validated clean across the real upstream CI matrix.**

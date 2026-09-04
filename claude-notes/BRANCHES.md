@@ -507,3 +507,42 @@ underlying root-cause analysis behind each fix.
   upstream PR list on `head.repo.owner.login == "m68k-io"` (zero hits
   both ways), so the force-push and the delete created no cross-
   reference and broke no review.
+
+## Update (2026-09-04): master sync, full rebase, identity change, one new branch
+
+- **`master` synced to `aa26ca67b`** (12 new upstream commits, two of
+  which touch `common.run`/`linux.run`). `baseline` rebased onto it,
+  and every `claude/*` branch rebased onto `baseline` — no conflicts
+  in any of them.
+- **All fix commits re-authored to `Alexander Moch
+  <mail@alexmoch.com>`**, author *and* `Signed-off-by:`, replacing
+  the `m68k.io <noreply@m68k.io>` convention adopted 2026-08-30. Per
+  explicit instruction. The `Copyright (c) 2026 by m68k.io` headers
+  in the three new `rsend` test files were changed to match, since
+  those go upstream with the fix. `claude-meta` deliberately left on
+  `m68k.io` — the instruction named the fixes, not the docs branch.
+- **New branch `claude/is_kmemleak_false_positive`**: one commit,
+  "ZTS: don't mistake a compiled-in kmemleak for a running one".
+  Fixes `is_kmemleak()` in `libtest.shlib`, which treated the mere
+  existence of `/sys/kernel/debug/kmemleak` as proof the detector was
+  live — it is created before the kernel checks whether kmemleak
+  actually started, so a `CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF` kernel
+  (Alpine's `linux-stable`) trips it. Full reasoning, kernel-source
+  evidence and the CI proof are in `CLAUDE.md`'s 2026-09-04 entries.
+  Independent of the Alpine work and upstream-submittable on its own.
+- **`claude/lzc_send_wrapper_splice_race` amended**: its third commit
+  now registers `send_dest_error` in `linux.run` rather than
+  `common.run`. Registering a Linux-gated test in `common.run` was
+  the actual cause of the `SKIP rsend/send_dest_error` that earlier
+  notes wrongly recorded as correct and by-design. FreeBSD now comes
+  back entirely clean.
+- **`claude/combined-review` rebuilt, six commits** on the rebased
+  `baseline`: `ksh_alpine_prebuilt`, `getopt_long_permute`, the three
+  `lzc_send_wrapper_splice_race` commits, and the new kmemleak fix.
+  Verified byte-identical to the user's `alpine/combined` on
+  `alex-moch/zfs` before results were read.
+- **`claude/zfs_get_006_posixly_correct`** rebased and pushed along
+  with the rest, still the unused alternative to
+  `getopt_long_permute`, still not deleted.
+- 34 cancelled workflow runs deleted from `m68k-io/zfs`; failed runs
+  kept for comparison history.

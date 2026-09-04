@@ -858,3 +858,128 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   wrapper_splice_race`. **Conclusion: `claude/combined-review` (ksh_
   alpine_prebuilt + getopt_long_permute + lzc_send_wrapper_splice_
   race) is validated clean across the real upstream CI matrix.**
+
+- **Upstream sync, full rebase, single identity (2026-09-04).**
+  `master` synced from upstream to `aa26ca67b` (12 new commits, two
+  of which touch `common.run`/`linux.run`); `baseline` rebased onto
+  it; all six `claude/*` branches rebased onto `baseline`, no
+  conflicts anywhere. **All fix commits re-authored to `Alexander
+  Moch <mail@alexmoch.com>`** -- author *and* `Signed-off-by:` --
+  replacing the `m68k.io <noreply@m68k.io>` convention that had been
+  in force since 2026-08-30, per explicit instruction. Same
+  correction applied to the `Copyright (c) 2026 by m68k.io` headers
+  in the three new `rsend` test files, since those carry the identity
+  upstream too. This docs branch is deliberately left on `m68k.io`:
+  the instruction named the fixes, not the meta branch.
+
+- **The `send_dest_error` FreeBSD skip was our bug, not by design --
+  the two entries above are wrong (2026-09-04).** Both earlier
+  entries call `SKIP rsend/send_dest_error` on `freebsd15-1r`
+  correct, by-design, "just isn't in a known expected mask yet", and
+  treat reproducing it as *confirmation*. It was actually a defect in
+  the branch. The test is Linux-gated for a real reason (it exercises
+  the Linux-only relay), but it was registered in
+  `tests/runfiles/common.run`, so FreeBSD ran it and correctly
+  reported the skip as unexpected. Linux-only tests belong in
+  `linux.run`, which already carries a `[tests/functional/rsend:
+  Linux]` section. Moved it there, folded into the commit that adds
+  the test rather than tacked on afterwards. `freebsd15-1r` now
+  returns **completely empty unexpected sections on both VMs**, and
+  `send_dest_error` appears in the whole job log exactly once, in the
+  `install -c` line -- installed, never run. Lesson worth keeping: a
+  result reproducing stably is evidence it is *deterministic*, not
+  evidence it is *correct*.
+
+- **`zfs_get_009_pos`: root cause found, and it is not the stale mask
+  (2026-09-04).** The entries above blame the `SKIP` on upstream's
+  `06d334b9e` dropping this test's expected-SKIP mask. That is only
+  the reason it became *visible*. The actual cause: the test
+  self-skips via `is_kmemleak`, which was `is_linux && [ -e
+  /sys/kernel/debug/kmemleak ]` -- and `kmemleak_late_init()` creates
+  that debugfs file *before* it checks whether the detector came up.
+  Alpine's `linux-stable` kernel is
+  `CONFIG_DEBUG_KMEMLEAK=y` **plus**
+  `CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF=y`, booted without
+  `kmemleak=on`, so it prints "Kernel memory leak detector disabled"
+  and leaves the file behind. The predicate has been reporting a
+  compiled-in-but-dead kmemleak as a live one. Two collateral
+  victims: `send_realloc_files` and `send_realloc_encrypted_files`
+  use the same helper to *reduce their workload*, so on Alpine they
+  were quietly running 100 files over 2 passes instead of 300 over 3
+  -- passing, and therefore never noticed.
+  Fixed on `claude/is_kmemleak_false_positive`: keep the file as a
+  cheap precondition, then confirm liveness via `/proc/slabinfo`.
+  `kmemleak_init()` returns ahead of creating the `kmemleak_object`
+  slab cache when disabled, and `SLAB_NOLEAKTRACE` is in
+  `SLAB_NEVER_MERGE`, so that cache exists under its own name exactly
+  when kmemleak was started. Where slabinfo cannot be read it falls
+  back to the file alone -- assuming kmemleak is on only costs
+  coverage, assuming it is off risks the timeout the skip exists to
+  avoid. Verified against real kernel source in
+  `/home/claude/Development/linux` (both the debugfs-before-check
+  ordering and the `SLAB_NEVER_MERGE` membership), and against this
+  box's own running kernel: old check said ENABLED, new check says
+  disabled. Note the asymmetry -- the *negative* case is verified
+  empirically, the *positive* case only from source; no
+  kmemleak-enabled kernel was available to observe.
+
+- **`claude/combined-review` is now six commits (2026-09-04),** the
+  five from before plus the kmemleak fix, all on the rebased
+  `baseline`. The kmemleak fix was folded in deliberately: it is the
+  branch that actually gets matrix-validated, and including it is
+  what proves `zfs_get_009_pos` runs rather than skips.
+
+- **Validation: `alex-moch/zfs` `alpine/combined` vs `alpine/baseline`,
+  side by side (2026-09-04).** Running the reference branch as a
+  control alongside the fix branch is what made this round
+  conclusive, and is worth repeating. `alpine/baseline`'s
+  `alpine3-24` (plain master, no fixes) reported exactly:
+  `FAIL zfs_get_006_neg`, `SKIP zfs_get_009_pos`,
+  `FAIL send-c_stream_size_estimate`. `alpine/combined` on an
+  identical tree to `claude/combined-review` (verified byte-identical
+  before reading any results) came back **fully clean, every
+  unexpected section empty on both VMs**. Per-test, combined vs
+  baseline: `zfs_get_006_neg` `[00:00] PASS` vs `FAIL`;
+  `zfs_get_009_pos` **`[03:08] PASS` vs `[00:00] SKIP`**;
+  `send-c_stream_size_estimate` `PASS` vs `FAIL`; all three new
+  `rsend` tests `PASS`; `send_realloc_files` **`[01:04]` vs
+  `[00:06]`** and `send_realloc_encrypted_files` **`[01:18]` vs
+  `[00:07]`**.
+  The durations are the real evidence, not the verdicts.
+  `zfs_get_009_pos` taking 3m08s where the commit that added the skip
+  recorded **55 minutes** under a live kmemleak confirms the detector
+  genuinely is not running, exactly as the new predicate claims --
+  and it fits inside the ZTS timeout with room to spare. The ~10x
+  jump in the two `send_realloc` tests is the restored full workload.
+
+- **Flakes seen this round, all on current master, none ours
+  (2026-09-04).** `send-c_stream_size_estimate` (FAIL on baseline,
+  PASS on combined -- so *flaky* on master, not the deterministic
+  failure an earlier note implied), `delegate/zfs_allow_003_pos`
+  (FAIL on one m68k-io run, PASS on both `alex-moch` branches on an
+  identical tree), and `fedora44` failing twice before passing on
+  re-run. None touch any subsystem the six commits change.
+
+- **The prebuilt-ksh93 step is a new single point of failure
+  (2026-09-04, unresolved).** `m68k-io`'s `claude/combined-review`
+  `alpine3-24` job died with `curl: (28) Failed to connect to
+  github.com:443 after 134277 ms` inside the `Install ksh93
+  (prebuilt)` group, after which `Install dependencies` wedged for
+  its full 60-minute timeout and both VMs became unreachable. Alpine
+  mirrors had installed 380 packages seconds earlier, so it was
+  github.com specifically. Tests never ran -- infra, not a
+  regression, but *our* step: `qemu-3-deps-vm.sh` does a single
+  unretried `curl -fLO` against github.com during VM setup, where the
+  from-source path it replaced never reached github.com at all.
+  Adding `--retry 3 --retry-all-errors --retry-delay 5
+  --connect-timeout 30` would bring it in line with the rest of the
+  setup script. **Offered, not yet done.**
+
+- **Housekeeping (2026-09-04).** Deleted all 34 cancelled workflow
+  runs on `m68k-io/zfs` (`alex-moch/zfs` had none); the failed runs
+  are kept, they carry comparison history. Still open, all offered
+  and awaiting a call: the `curl` retry above; the
+  `getopt_long_permute` commit message's now-stale line citing issue
+  `#5479` as an "unrelated expected SKIP" (it is the kmemleak false
+  positive, and it puts an upstream issue URL in a commit message);
+  and submitting the unmerged fixes upstream.

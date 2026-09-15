@@ -609,3 +609,52 @@ underlying root-cause analysis behind each fix.
   fits inside GitHub's 6h job cap, and how much false-positive noise
   ZFS generates now that every non-empty report is a FAIL. Neither
   number is knowable from the source.
+
+## Update (2026-09-15, later): two new branches, one experiment running
+
+- **`claude/kmemleak_alpine` gained a third commit.** "ZTS: look for the
+  kmemleak file the way it is later used" — the `-m` existence check
+  used `os.path.exists()` on a 0700 debugfs as an unprivileged user, and
+  then, once that was spelled with sudo, depended on `test(1)`, which is
+  not in the constrained PATH the suite builds from `commands.cfg`. It
+  now uses `sudo -n sh -c "test -e …"` and reports sudo's own stderr on
+  failure, since the previous version's `capture_output=True` was why
+  the first failed run explained nothing. The commit was amended rather
+  than stacked, because the earlier version was simply incomplete.
+
+- **New branch `claude/kmemleak_balanced`** — the experiment, currently
+  running. `claude/kmemleak_alpine` plus a cherry-pick of the upstream
+  draft that splits tests across the two VMs by measured runtime instead
+  of count, plus two commits: raising the ZTS step timeout to 330
+  minutes, and a `**DEBUG**` commit restricting the matrix to
+  `alpine3-24` so six jobs at up to six hours each do not hit this
+  account's concurrency limits. Drop that last one before the branch
+  goes anywhere.
+  - Running the new `split_tags()` locally and pricing both halves
+    against baseline per-test timings predicts **1075 tests / ~5:16** and
+    **1047 tests / ~4:35**. So it should finish with roughly 14 minutes
+    of margin, and the ~40 minute imbalance that eats the margin is the
+    timing-database effect: the database is built from runs without
+    kmemleak. Watch out — if the slower VM ever did use the full 330,
+    the job would sit at 355 minutes with only ~5 left for artifact
+    collection before the six-hour ceiling, and the artifacts would be
+    lost.
+
+- **New branch `claude/zio_crypt_key_unwrap_leak`** — one commit,
+  "zio_crypt: free the key unwrap uios when decryption fails", on
+  `baseline`. Three lines moved: release the uios as soon as the crypto
+  call returns, then test the result. Fixes a leak that is reachable
+  from userland by repeating `zfs load-key` with the wrong passphrase.
+  Full reasoning, the kmemleak evidence and the before/after numbers are
+  in `CLAUDE.md`'s 2026-09-15 entries. Independent of all the Alpine
+  work and upstream-submittable on its own — and worth submitting
+  promptly, since the bug reached master only a day earlier and has
+  never been in a release.
+  - **The commit message carries no reference to the commit that
+    introduced it**, per the standing rule. Upstream would normally want
+    a `Fixes:` line on a fix of this shape; that is the user's call
+    before submitting.
+
+- **A worktree at `~/Development/zfs-meta`** was added so documentation
+  could be committed while a ZTS run held the main checkout. Remove it
+  with `git worktree remove` when it is no longer wanted.

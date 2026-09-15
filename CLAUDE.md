@@ -1184,3 +1184,114 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   average this probably never fires, but tests near their 600s limit
   could flip to spurious KILLEDs. Fixing it means restructuring the
   `try`/`finally`; left for the user to decide.
+
+## Update (2026-09-15, later): first working kmemleak run, and the leak it found
+
+- **Reply posted to the upstream issue.** Three numbers in the draft were
+  wrong and were corrected before sending: the baseline Alpine time is
+  **3:01:37** (vm2's own `Running Time`; vm1 was 2:05:34, and the merged
+  summary's `05:07:11` is the two VMs *summed*, not wall time); vm2 had
+  **179** tests left, not 190, because the figure had been read off a
+  counter line printed 26 minutes before the cap; and the step timeout
+  should be raised to **330**, not 360, since the six-hour ceiling covers
+  the whole job and the build consumes about 25 minutes of it. A 360
+  minute step timeout can never be reached.
+
+- **`-m` needed three fixes, not one.** Beyond the missing `sh` in the
+  `scan=0` invocation: `kmemleak_cb()` tested for the file with
+  `os.path.exists()`, but debugfs is mounted `drwx------ root:root`, so
+  an unprivileged caller cannot stat anything below it and the check
+  fails on a kernel where the detector is demonstrably running. Spelling
+  it `sudo -n test -e` then failed too, because `zfs-tests.sh` runs the
+  runner as `PATH=$STF_PATH`, a constrained directory built from
+  `commands.cfg` -- which carries `sh`, `sudo` and `cat` but **not
+  `test`**. Every other kmemleak command in that file is `sudo sh -c` or
+  `sudo cat`; the existence check was the only one that reached outside
+  the whitelist. Each bug hid the next, which is what three and a half
+  years of nobody running `-m` looks like.
+
+- **The run completed on one VM and was killed on the other.** vm1:
+  `04:17:39`, 1162 PASS / 7 FAIL / 10 SKIP, two unexpected
+  (`zfs_receive_-e`, `send-c_stream_size_estimate`). vm2: killed at the
+  300 minute step cap having finished **769 of 948**. `Prepare
+  artifacts` carries `if: always()`, so the artifacts survived.
+
+- **Measured cost, from the 1890 tests present in both runs**: 272 min
+  of baseline work became 537 min, so **roughly 2x**, against the ~50%
+  the original ZTS kmemleak commit advertised. The overhead is *not*
+  flat -- the ratio falls as tests get heavier:
+
+  | baseline duration | n | added | ratio |
+  |---|---|---|---|
+  | 0-2s | 1228 | +2.5s | 19.6x |
+  | 2-5s | 178 | +6.1s | 3.2x |
+  | 5-15s | 241 | +10.9s | 2.3x |
+  | 15-60s | 170 | +28.4s | 2.0x |
+  | 60-300s | 70 | +62.0s | 1.6x |
+
+  This matters for any runtime-balanced split: for long tests the cost
+  is near-proportional, so a runtime balance survives, but the ~1200
+  sub-two-second tests each gain about 2.5s regardless of weight. That
+  is ~50 minutes distributed by test *count*, invisible to a timing
+  database built from runs without kmemleak.
+
+- **Five kmemleak reports across ~2029 executed tests, and all five are
+  the same leak.** Zero false positives -- the original commit's warning
+  about "unavoidable potential false positives from kernel areas other
+  than OpenZFS" did not materialise here at all. `zfs_receive_-e` on
+  vm1; `raidz_001_neg`, `zfs_change-key_format`, `zfs_copies_001_pos`
+  and `zfs_channel_program_support` on vm2. A FAIL caused by a leak
+  report is indistinguishable from an ordinary FAIL in the summary --
+  the discriminator is a `kmemleak` file in the test's outputdir.
+
+- **The leak: `zio_crypt_key_unwrap()` skips its cleanup on failure.**
+  It allocates a pair of iovec buffers via `zio_crypt_uios_init_os()`
+  and releases them with `zio_crypt_uios_fini_os()` after the keys are
+  decrypted -- but `zio_decrypt_os()` failing jumps to the error label
+  ahead of that release. Every key unwrap that does not authenticate
+  leaks 64 bytes twice, so repeated `zfs load-key` with a wrong
+  passphrase grows kernel memory without bound. `zio_crypt_key_wrap()`
+  forty lines earlier frees unconditionally on both paths, which is the
+  shape the unwrap path should have had. Not Linux specific: the code
+  is shared and FreeBSD's `zio_crypt_uios_init_os()` allocates through
+  `allocuio()`.
+  - **It is one day old in master.** The introducing commit was authored
+    2026-05-24 but *committed* 2026-09-14, and is not an ancestor of the
+    old baseline -- it arrived with today's 90-commit sync and has never
+    been in a release. It is also why the module that was loaded on the
+    dev box (built from the pre-rebase baseline) did not have it and a
+    fresh build was needed to reproduce.
+  - **Audited rather than assumed isolated**: `zio_crypt_key_wrap` and
+    `zio_do_crypt_data` both free correctly, including in the latter's
+    `error:` label, and none of the three `zio_crypt_init_uios_*`
+    helpers can return an error before calling `init_os`, so the
+    caller's error path never frees uninitialised uios.
+
+- **Verified on the dev box under a live kmemleak**, not by reading
+  code. 200 failed unwraps reported **204** leaked objects before the
+  fix and **0** after; a control run performing no unwraps reported 1.
+  Intermediate fixed-module runs gave 6 at N=20 and 2 at N=60 --
+  uncorrelated with attempt count, i.e. kmemleak's own noise floor,
+  where the unfixed module was linear at ~1 object per attempt. The 29
+  tests in `crypto,zfs_load-key,zfs_change-key,zfs_unload-key,hkdf` pass
+  100% with the fix applied.
+
+- **Two corrections to earlier entries in this file.**
+  - The claim that master had gained ~200 tests is **wrong**. The
+    runfiles grew by **13** between the two master commits. The
+    executed-test difference (1929 to 2127) is almost entirely a change
+    in *tag coverage*: modelling the baseline run's own tag lists leaves
+    ~179 runfile entries matching neither VM, while the current lists
+    leave none. Tests were not added; tests that previously ran on
+    neither VM now run.
+  - The `N(a|b)` figure in the runner's progress line is a **live
+    snapshot**, not a final total -- the first number tracks vm1 and the
+    second vm2. Reading a pasted mid-run line as if it were final is
+    what produced the wrong "190 remaining". For final counts use the
+    summary, or the last counter line in the completed job log.
+
+- **Minor CI quirk found while modelling the split**: `acl/posix-sa`
+  matches both VMs' tag lists (`posix-sa` is in one, `acl` in the
+  other), so its 6 entries execute twice per run, once on each VM. That
+  is the entire discrepancy between the 2121 distinct runfile entries
+  and the 2127 executions the model predicts.

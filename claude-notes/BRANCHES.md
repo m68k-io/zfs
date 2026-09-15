@@ -658,3 +658,46 @@ underlying root-cause analysis behind each fix.
 - **A worktree at `~/Development/zfs-meta`** was added so documentation
   could be committed while a ZTS run held the main checkout. Remove it
   with `git worktree remove` when it is no longer wanted.
+
+## Update (2026-09-15, evening): two PRs open, one more branch
+
+- **Two PRs opened upstream by the user**, both deliberately small
+  enough not to need further testing:
+  - the `zio_crypt_key_unwrap` leak fix, byte-identical to what was
+    verified here (204 leaked objects to 0);
+  - the missing `sh` in the `-m` `scan=0` invocation.
+  - **The second one is not sufficient on its own, and the user knows
+    it.** `kmemleak_cb` runs during `parse_args()`, long before the
+    line that PR fixes, and its `os.path.exists()` check fails for any
+    unprivileged caller — which is how `zfs-tests.sh` and the CI start
+    the suite. So `-m` still dies first, in exactly the way the second
+    CI run demonstrated; the PR only helps when the suite is run as
+    root. The user chose to upstream it anyway as an obviously-correct
+    one-word fix and let the rest follow later. The companion fix is
+    the third commit on `claude/kmemleak_alpine`, ready whenever they
+    want it.
+
+- **New branch `claude/mount_loopback_losetup_show`** — one commit on
+  `baseline`, pushed, matrix run cancelled on sight, checkstyle left to
+  run. Takes the loop device name from `losetup --show -f` instead of
+  attaching and then looking it up, which on Alpine fails for any
+  device past the first eight. Full root cause and the cascade it
+  caused are in `claude-notes/INVESTIGATIONS.md` as cluster 8.
+  Upstream-submittable on its own and unrelated to everything else in
+  flight.
+
+- **Submission state of the three ready branches**, none dependent on
+  each other: `zio_crypt_key_unwrap_leak` (PR open, checkstyle green),
+  `mount_loopback_losetup_show` (ready), and `claude/kmemleak_alpine`'s
+  third commit (ready, is the companion PR 19117 needs).
+
+- **Convention worth keeping**: pushing a fix branch triggers a
+  six-job matrix that competes with any long experiment for the
+  account's concurrency. The pattern settled on is push, cancel the
+  `zfs-qemu` run within seconds by polling `gh run list --branch`, and
+  leave `checkstyle` running — it is cheap and it is what validates
+  cstyle and the 72-character commit message limits before a PR goes
+  out. Poll on the branch, not on a short SHA: the runs API needs the
+  full 40-character hash and silently returns nothing for an
+  abbreviated one, which caused a duplicate full-matrix run earlier in
+  the day.

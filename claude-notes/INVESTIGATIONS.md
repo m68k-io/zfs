@@ -1366,3 +1366,99 @@ config, not a shared runner limitation.
    happens via real CI once this branch is tested there, same as every
    other fix branch in this repo.
 
+
+## Cluster 8: `mount_loopback`, and the five failures it dragged down (2026-09-15)
+
+Found while triaging the unexpected FAILs from the first working
+kmemleak run. Worth reading as much for the cascade as for the bug.
+
+### Symptom
+
+On the Alpine leg, six tests failed in a five-minute window:
+
+```
+14:57:46  00:34  mount/mount_loopback
+14:58:28  00:33  nestedfs/cleanup
+15:00:38  00:32  nopwrite/cleanup
+15:01:27  00:03  pool_names/pool_names_002_neg
+15:01:54  00:06  procfs/pool_state
+15:02:26  00:31  procfs/cleanup
+```
+
+The last five all die on the identical line, `cannot unmount
+'/testpool2': pool or dataset is busy`, and the ~31s durations are
+`destroy_pool`'s 1/2/4/8/16-second retry backoff running out. They are
+not five bugs. They are one bug plus four bystanders, and nothing in
+the ZTS summary says so — each is reported as an independent failure.
+
+### Root cause
+
+`mount_loopback` fails first, with `mkfs.xfs` printing `No data device
+name specified`. The test did:
+
+```sh
+log_must losetup -f $imgfile
+# Alpine Linux loop devices appear as `/dev/loop/N` instead of `/dev/loopN`.
+DEV=$(losetup --associated $imgfile | grep -Eo '^/dev/loop/?[0-9]+')
+log_must mkfs.xfs $DEV
+```
+
+`DEV` came back empty, so `mkfs.xfs` ran with no argument.
+
+**Alpine's udev creates a `/dev/loop` directory at boot containing
+exactly the loop devices that existed then — eight of them — and
+util-linux's losetup enumerates through that directory whenever it is
+present.** Loop devices allocated later exist as `/dev/loopN` in
+devtmpfs and are visible in sysfs, but never appear in `/dev/loop/`, so
+they are invisible to `losetup --associated` and to `losetup -a`.
+
+Reproduced directly on the dev box: with twelve images attached,
+querying the ones on devices 8 and above returns empty every time,
+while `/sys/block/loop10/loop/backing_file` names the file correctly.
+CI's run got `loop12`, four hours in, with many loopbacks already
+consumed; the baseline run happened to get a low-numbered device and
+passed.
+
+**It is not a race, and an early hypothesis that kmemleak's ~2x
+slowdown had widened one was wrong.** A full `udevadm trigger` +
+`udevadm settle` + sleep changes nothing: `/dev/loop/` still holds only
+0-7 afterwards, and the query still returns empty. `block_device_wait`
+would not have helped. The test passes or fails purely on which loop
+number it is handed, which is why it is intermittent across runs rather
+than consistently broken on Alpine.
+
+### Why one failure became six
+
+`mount_loopback` aborts while the loop device still holds
+`/testpool2/img` open, so `testpool2` can never be unmounted. Every
+later test that calls `destroy_pool` inherits it, retries for ~31
+seconds, and fails. Any test that leaves a loop device attached to a
+file on a ZFS pool poisons the rest of that VM's run — worth
+remembering the next time a block of unrelated-looking failures appears
+in one time window.
+
+### Fix
+
+`claude/mount_loopback_losetup_show`: ask losetup to print the device
+it attached, instead of attaching and then looking it up.
+
+```sh
+DEV=$(losetup --show -f $imgfile)
+```
+
+One operation, no lookup to get wrong, returns a path that exists on
+every distribution, and the `/dev/loop/N` special-casing disappears
+with it.
+
+Verified as an A/B on the dev box with loop devices 0-7 deliberately
+occupied, so the test is forced onto a higher one: **unfixed `[00:31]
+FAIL`, fixed `[00:15] PASS`** — both durations matching what CI and the
+baseline run recorded respectively, which is good evidence the local
+reproduction is the same failure and not merely a similar one.
+
+### Loose thread
+
+Anything else on Alpine that enumerates loop devices this way shares
+the blind spot. `zfs-tests.sh` sets up its own loopbacks; it evidently
+works today, but it has not been checked against the 8-device
+boundary.

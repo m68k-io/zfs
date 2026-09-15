@@ -1295,3 +1295,40 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   other), so its 6 entries execute twice per run, once on each VM. That
   is the entire discrepancy between the 2121 distinct runfile entries
   and the 2127 executions the model predicts.
+
+## Update (2026-09-15, evening): triage of the run's other failures
+
+- **Every FAIL in the kmemleak run is now accounted for.** 25 across
+  both VMs, in five groups:
+  - **12 masked known issues** — vm1's `auto_replace_001/002_pos`,
+    `auto_spare_multiple` and both `xdr_*_raw_with_write`; vm2's six
+    `casenorm/*` and `import_rewind_device_replaced`.
+  - **5 kmemleak reports** — the crypto leak, one site.
+  - **1 known Alpine failure** — `zfs_get_006_neg`, expected, since
+    this branch is baseline plus kmemleak only and carries no getopt
+    fix.
+  - **1 known send bug** — `send-c_stream_size_estimate`, fix lives on
+    another branch.
+  - **6 in one cascade** — `mount_loopback` plus five bystanders. See
+    cluster 8 in `claude-notes/INVESTIGATIONS.md`; fixed on
+    `claude/mount_loopback_losetup_show`.
+
+- **Lesson from the cascade, worth generalising.** One test aborting
+  while holding a loop device open left `testpool2` permanently busy,
+  and every later test that called `destroy_pool` failed after a ~31
+  second retry backoff. Five failures in unrelated subsystems, in one
+  time window, all reported independently by the summary with nothing
+  linking them. When a block of unrelated-looking failures clusters in
+  time, look for a single earlier test that leaked state rather than
+  triaging each one separately — and sort failures by timestamp first,
+  which is what made this obvious.
+
+- **A wrong hypothesis worth recording, since it was stated with some
+  confidence.** The `mount_loopback` failure was first attributed to a
+  udev race widened by kmemleak's ~2x slowdown. It is not a race at
+  all: Alpine's `/dev/loop` directory is built once at boot with eight
+  entries, and no amount of `udevadm settle` adds more. The correct
+  read only came from testing the settle rather than assuming it would
+  help. The general form of the mistake — reaching for "slower machine
+  widened a race" when a run is slower than usual — is worth
+  distrusting.

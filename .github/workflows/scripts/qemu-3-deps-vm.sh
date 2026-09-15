@@ -43,6 +43,22 @@ function alpine() {
   sudo update-extlinux
   echo "##[endgroup]"
 
+  echo "##[group]Enable kmemleak on the next boot"
+  # -stable is built with CONFIG_DEBUG_KMEMLEAK=y but also
+  # CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF=y, so the detector is compiled in
+  # and inert until kmemleak=on is passed on the kernel command line.
+  # Alpine is the only OS in the matrix that carries kmemleak at all,
+  # which makes it the one runner that can do leak checking without a
+  # custom kernel build.  Read the current options back through the
+  # config's own shell syntax rather than matching on their spelling.
+  # Lands on the same next boot as the -stable switch above.
+  kopts=$(. /etc/update-extlinux.conf; echo "$default_kernel_opts")
+  sudo sed -i \
+    "s|^default_kernel_opts=.*|default_kernel_opts=\"$kopts kmemleak=on\"|" \
+    /etc/update-extlinux.conf
+  sudo update-extlinux
+  echo "##[endgroup]"
+
   echo "##[group]Install ksh93 from Source"
   # Build the actively-maintained "1.0" branch instead of the
   # default "dev" branch for a reproducible, stable build.

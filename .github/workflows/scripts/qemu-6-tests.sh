@@ -252,7 +252,20 @@ sudo dmesg -c > dmesg-prerun.txt
 mount > mount.txt
 df -h > df-prerun.txt
 RV=0
-$TDIR/zfs-tests.sh -vKO -s 3GB -T $TAGS || RV=$?
+
+# Alpine boots with kmemleak=on (see qemu-3-deps-vm.sh), so ask the test
+# runner to clear the detector before each test case and scan after it.
+# A test that leaves anything unreferenced behind is reported as a FAIL
+# with the report attached, which is what makes the detector useful --
+# expect some false positives from kernel subsystems other than ZFS.
+KMEMLEAK=""
+case "$OS" in
+  alpine*)
+    KMEMLEAK="yes"
+    ;;
+esac
+
+$TDIR/zfs-tests.sh -vKO ${KMEMLEAK:+-m} -s 3GB -T $TAGS || RV=$?
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

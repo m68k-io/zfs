@@ -1332,3 +1332,66 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   help. The general form of the mistake — reaching for "slower machine
   widened a race" when a run is slower than usual — is worth
   distrusting.
+
+## Update (2026-09-15, late): correcting the leak measurement, and how kmemleak misleads
+
+The 2026-09-15 entry above records "200 failed unwraps reported 204
+leaked objects before this change and none after, against one object on
+a control run". **Those figures are not a clean before-and-after.** The
+fix is right and the conclusion stands, but the measurement behind it
+was wrong in three ways, each worth knowing before anyone measures with
+kmemleak again.
+
+- **A single `cat` of `/sys/kernel/debug/kmemleak` returns a partial
+  list.** Three consecutive reads with no scan in between gave 82, then
+  120, then 130. The "204" was one such read. Count by reading
+  repeatedly until the number stops growing.
+
+- **`kmemleak_clear()` only greys objects already flagged
+  `OBJECT_REPORTED`:**
+
+  ```c
+  if ((object->flags & OBJECT_REPORTED) && unreferenced_object(object))
+          __paint_it(object, KMEMLEAK_GREY);
+  ```
+
+  Anything that leaked but was never *reported* stays white and remains
+  eligible for any later scan, forever. So `echo clear` does **not**
+  give a clean slate: every run inherits an unreported backlog from
+  every previous run on that boot. This is what produced the wild
+  spread of 13, 14, 70, 76, 78, 82, 97, 187 and 225 across runs of 10 to
+  200 attempts, and it is why one unfixed run reported 2.80 objects per
+  unwrap when the code can only allocate 2.
+
+- **`unreferenced_object()` measures age against `jiffies_last_scan`,
+  not the current time**, with `MSECS_MIN_AGE` of 5000 ms. Anything
+  allocated in the five seconds before a scan is invisible to that scan.
+  The original script slept only 3 seconds before scanning, so the tail
+  of every run was excluded by construction.
+
+**How to tell a straggler from a real leak**: compare the `jiffies` and
+`pid` fields against the run that reported them. Objects reported by
+later runs here consistently carry *lower* jiffies and *lower* PIDs than
+objects reported by earlier ones -- they predate the run reporting them.
+That is the single most useful check, and it is what settled this.
+
+**What the corrected measurement shows.** Unfixed, with repeated reads
+and an 8-second settle: 70 objects from 25 unwraps, 187 from 100 -- call
+it ~2 per unwrap, matching the two `kmem_zalloc` calls in
+`zio_crypt_uios_init_os()`. The two allocation sites reported 307 and
+278 objects across all runs, when the code cannot execute one without
+the other; that 10% gap is the false-negative rate, measured directly.
+Fixed, from a drained baseline, six runs of 200 unwraps each: 0, 2, 2,
+1, 0, 1 -- every reported object belonging to a process older than the
+run that reported it.
+
+**The claim that actually carries the fix is the code**, not the
+counts: after the change there is no path through
+`zio_crypt_key_unwrap()` that allocates the uios and does not free
+them. The only airtight measurement would be a reboot with the fixed
+module loaded first, where no backlog can exist; that was not done.
+
+**Method note for next time**: a `pgrep -f "[l]eakrepro"` wait loop
+deadlocked two background jobs against each other, because each job's
+own command line contained the pattern. The `[l]` trick only stops
+`pgrep` matching itself, not sibling jobs that mention the same script.

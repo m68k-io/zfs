@@ -566,3 +566,46 @@ underlying root-cause analysis behind each fix.
   it there means cherry-picking the corrected commit and rebuilding
   `alpine/combined`; the tree does not change, so CI stays green. The
   user is aware and chose to leave it for now.
+
+## Update (2026-09-15): master resync, new branch `claude/kmemleak_alpine`
+
+- **`master` fast-forwarded 90 commits to `44aa82a6c`**, `baseline`
+  rebased onto it and force-pushed. One conflict: upstream added
+  `quick`, `linux` and `freebsd` cases to `zfs-qemu.yml`'s
+  `os_selection` switch, which the `**DEBUG**` commit deletes wholesale.
+  Resolved in favour of the DEBUG intent — those cases are gone on
+  this branch and everything falls through to the six-runner default
+  list that includes `alpine3-24`. Worth re-checking on the next
+  resync, since upstream's real lists keep growing and the fork's
+  restriction silently discards them.
+
+- **New branch `claude/kmemleak_alpine`**, two commits on `baseline`:
+  - *"ZTS: fix test-runner crashing immediately under -m"* — restores
+    the `sh` dropped from the `scan=0` invocation in a 2022 cleanup,
+    which has made `-m` unusable ever since. One word, and
+    independently upstream-submittable: it is a real bug on every
+    platform, nothing to do with Alpine.
+  - *"CI: turn on kmemleak leak checking for the Alpine runner"* —
+    appends `kmemleak=on` to `default_kernel_opts` in the deps step
+    that already switches Alpine to the `-stable` kernel and already
+    relies on the poweroff/boot before the build, then passes `-m` to
+    `zfs-tests.sh` on `alpine*` in `qemu-6-tests.sh`. The cmdline
+    rewrite sources the config to read the existing options back
+    rather than pattern-matching their spelling; tested against both
+    quoted and unquoted forms of `default_kernel_opts`.
+
+  The two changes are useless apart: the boot flag alone gets a slower
+  kernel with no reporting, and `-m` alone has nothing to report on.
+  The predicate fix is deliberately *not* in this branch — it is a
+  separate PR and, with kmemleak genuinely on, changes nothing
+  observable here.
+
+- **The commit messages carry no `Fixes:` line** for the commit that
+  broke `-m`, per the standing no-cross-references rule, even though
+  upstream would normally want one on a fix of this shape. Flagged to
+  the user; their call before it goes upstream.
+
+- **What the first run measures**: whether a kmemleak-enabled ZTS run
+  fits inside GitHub's 6h job cap, and how much false-positive noise
+  ZFS generates now that every non-empty report is a FAIL. Neither
+  number is knowable from the source.

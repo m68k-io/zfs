@@ -1077,3 +1077,110 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   corrected commit is on `m68k-io`'s `claude/getopt_long_permute`,
   cherry-pickable without changing the tree. The user is aware and
   chose to leave it while CI is green.
+
+## Update (2026-09-15): maintainer answered the Alpine issue; kmemleak enablement
+
+- **Brian Behlendorf replied on the upstream Alpine issue**, covering
+  all four items. The mail did its job — the issue had sat at zero
+  comments until then.
+  - **ksh93: accepted with a condition.** Prebuilt binaries are fine
+    for "solely a test CI environment with no secrets which is
+    intended to test PRs", but he wants the package hosted somewhere
+    under the OpenZFS GitHub organization rather than a personal
+    account. `qemu-3-deps-vm.sh` currently pulls from
+    `alex-moch/ksh/releases/latest`. Deferred by the user.
+  - **kmemleak: he asked a different question than the one filed** —
+    "could we instead enable kmemleak at boot?" They used to build a
+    custom kernel for this and the maintenance burden killed it; he
+    wants leak checking back "even if it is for only one of the
+    builders."
+  - **`zfs_get_006_neg`: decided — option 5**, drop the
+    argument-ordering cases. His reasoning: lowest risk, won't break
+    anything users depend on, and it is a single test. He also notes
+    FreeBSD defaults to `POSIXLY_CORRECT`, so those cases only ever
+    verified that the tests themselves pass arguments in the right
+    order. This unblocks the item the user called a blocker.
+    `claude/zfs_get_006_posixly_correct` already exists and is the
+    shape he picked. Held pending the kmemleak work.
+  - **`send-c_stream_size_estimate`: he is taking it**, with "add
+    this test to the exceptions list until we sort out the root
+    cause" as the fallback. Off the user's plate.
+
+- **The predicate fix is not load-bearing in upstream CI.** Grepping
+  the *baseline* (unfixed) run per builder settles it:
+
+  | builder | `zfs_get_009_pos` | `send_realloc_files` |
+  |---|---|---|
+  | ubuntu26 | `[01:10] PASS` | `[00:28] PASS` |
+  | debian13 | `[03:03] PASS` | `[00:38] PASS` |
+  | fedora44 | `[03:28] PASS` | `[00:38] PASS` |
+  | almalinux10 | `[03:00] PASS` | `[00:38] PASS` |
+  | **alpine3-24** | **`[00:00] SKIP`** | `[00:06] PASS` |
+
+  The four glibc builders have no `/sys/kernel/debug/kmemleak` at all,
+  so `is_kmemleak()` already answers correctly there. Alpine is the
+  only builder that false-positives, and with one Alpine runner and
+  kmemleak genuinely enabled the predicate would answer correctly too.
+  The fix still matters — `libtest.shlib` ships to everyone running
+  ZTS on a `DEBUG_KMEMLEAK=y` + `DEFAULT_OFF=y` kernel, and it is what
+  lets one builder differ from the rest — but it does not unblock
+  anything in this CI. Earlier notes overstated its CI impact.
+
+- **The trade nobody had named.** The tests guarded by `is_kmemleak`
+  skip *because kmemleak makes them ruinously slow*. So enabling
+  kmemleak on the only Alpine runner re-skips exactly the coverage the
+  predicate fix restored (`zfs_get_009_pos` back to `00:00`,
+  `send_realloc_files` back to `00:06`). Leak checking across ~1900
+  tests or three tests on one builder — probably the right trade, but
+  a trade, and it means the two changes pull in opposite directions on
+  that one runner. It also means "enable kmemleak now, fix the
+  predicate later" loses nothing: Alpine already behaves as though
+  kmemleak is on.
+
+- **ZTS's `-m` option has been broken since 2022-03-14.** kmemleak
+  support landed 2022-02-24 ("Add Linux kmemleak support to ZTS",
+  Damian Szuberski) driving `/sys/kernel/debug/kmemleak` through three
+  `echo X | sudo tee FILE` pipelines. Three weeks later a cleanup
+  commit ("tests: clean out unused/single-use/useless commands from
+  the list") rewrote all three as `sudo sh -c "echo X > FILE"` and
+  dropped the `sh` on one — the `scan=0` that disables the periodic
+  scan before the run. `sudo` has no `-c` (only `-C/--close-from`),
+  so it exits with a usage error, `check_output()` raises
+  `CalledProcessError`, and the run dies before the first test case.
+  Nobody has used `-m` in three and a half years.
+
+- **Leaks do surface, as FAILs.** `test-runner.py.in`:
+  `elif len(self.kmemleak) > 0: self.result = 'FAIL'`. A non-empty
+  report turns that test into a FAIL and writes the report into the
+  test's outputdir. An earlier read of this file wrongly concluded
+  nothing consumed the output. The flip side: false positives become
+  FAILs too, and the original commit is explicit that they happen —
+  "unavoidable potential false positives coming from kernel areas
+  other than OpenZFS module", with a `btrfs` leak in its own example
+  run and 98.3% passed.
+
+- **Cost is documented, not guessed.** That same commit message:
+  "The ZTS with kmemleak enabled duration is increased by ~50%".
+  Alpine's ZTS currently ends at `03:02:52`, so expect roughly
+  **4h40**. The `Run tests` step cap is `timeout-minutes: 300` — it
+  fits, barely. The real ceiling is GitHub's 6h cap on the whole job,
+  which also carries the ~1h build.
+
+- **Kernel side confirmed on the dev box** (`7.1.5-0-stable`, the same
+  flavour the CI boots): `CONFIG_DEBUG_KMEMLEAK=y`,
+  `CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF=y`,
+  `CONFIG_DEBUG_KMEMLEAK_AUTO_SCAN=y`, `CONFIG_SLUB_DEBUG=y`. So
+  `kmemleak=on` on the command line is all it takes — no custom
+  kernel, which is precisely the burden that drove the project off
+  kmemleak in the first place. Alpine is the only OS in the matrix
+  that carries the option at all, which makes it the one runner where
+  leak checking is cheap.
+
+- **Latent hazard, deliberately not fixed.** The per-test scan runs
+  *inside* the timeout window — `t.cancel()` sits in the `finally`,
+  after the `echo scan` and `cat`. A test whose runtime plus scan
+  exceeds its runfile timeout has `kill_cmd` fired at an
+  already-exited process and is recorded `KILLED`. At a ~5.6s suite
+  average this probably never fires, but tests near their 600s limit
+  could flip to spurious KILLEDs. Fixing it means restructuring the
+  `try`/`finally`; left for the user to decide.

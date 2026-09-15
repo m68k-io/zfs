@@ -68,9 +68,12 @@ function do_test
 {
 	imgfile=$1
 	log_note "Running test on $imgfile"
-	log_must losetup -f $imgfile
-	# Alpine Linux loop devices appear as `/dev/loop/N` instead of `/dev/loopN`.
-	DEV=$(losetup --associated $imgfile | grep -Eo '^/dev/loop/?[0-9]+')
+	# Looking the device up afterwards misses the ones Alpine's udev
+	# left out of /dev/loop, so take the name from losetup itself.
+	DEV=$(losetup --show -f $imgfile)
+	if [ -z "$DEV" ] ; then
+		log_fail "Failed to attach $imgfile to a loop device"
+	fi
 	log_must mkfs.xfs $DEV
 	mkdir $TEST_BASE_DIR/mnt
 	log_must mount $DEV $TEST_BASE_DIR/mnt

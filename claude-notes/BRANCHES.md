@@ -622,8 +622,10 @@ underlying root-cause analysis behind each fix.
   the first failed run explained nothing. The commit was amended rather
   than stacked, because the earlier version was simply incomplete.
 
-- **New branch `claude/kmemleak_balanced`** — the experiment, currently
-  running. `claude/kmemleak_alpine` plus a cherry-pick of the upstream
+- **New branch `claude/kmemleak_balanced`** — the experiment. **It
+  failed: the step hit the 330-minute cap and the job finished at 5h
+  58m 51s of the 6h ceiling.** `claude/kmemleak_alpine` plus a
+  cherry-pick of the upstream
   draft that splits tests across the two VMs by measured runtime instead
   of count, plus two commits: raising the ZTS step timeout to 330
   minutes, and a `**DEBUG**` commit restricting the matrix to
@@ -639,6 +641,20 @@ underlying root-cause analysis behind each fix.
     the job would sit at 355 minutes with only ~5 left for artifact
     collection before the six-hour ceiling, and the artifacts would be
     lost.
+  - **Outcome.** The test-count prediction was exact — vm2 ran 1047 —
+    and both time predictions were too low. vm2 took **4:58:24**
+    against 4:35 predicted; vm1 never finished and projects to
+    **~6:10** against 5:16 predicted. The error is in the same
+    direction for both, so the per-test kmemleak weighting used to
+    price the halves is systematically light on this workload; do not
+    reuse it without recalibrating. Artifacts did survive, because the
+    step cap fired 78 seconds before the job ceiling rather than after
+    it. Full analysis in `claude-notes/INVESTIGATIONS.md`, cluster 9.
+  - The branch keeps its value as a measurement, not as something to
+    submit. What upstream needs from it is the finding — a perfect
+    split still lands ~3 minutes over — not the commits, two of which
+    (the 330-minute cap and the `**DEBUG**` restriction) exist only to
+    run the experiment.
 
 - **New branch `claude/zio_crypt_key_unwrap_leak`** — one commit,
   "zio_crypt: free the key unwrap uios when decryption fails", on

@@ -1462,3 +1462,102 @@ Anything else on Alpine that enumerates loop devices this way shares
 the blind spot. `zfs-tests.sh` sets up its own loopbacks; it evidently
 works today, but it has not been checked against the 8-device
 boundary.
+
+## Cluster 9: kmemleak does not fit in one job, even balanced (2026-09-15)
+
+The experiment: `claude/kmemleak_balanced` = the three kmemleak
+commits, plus Tony Hutter's runtime-balanced VM split, plus the ZTS
+step timeout raised from 300 to 330 minutes. Artifacts in
+`logs/qemu-alpine3-24_balanced_20260915/`.
+
+**Result: it does not fit, and there is no headroom left to find.**
+
+### The budget, measured
+
+| segment | wall |
+|---|---|
+| checkout, QEMU setup, build machine, deps | 8m 39s |
+| build modules | 19m 50s |
+| set up testing machines | 45s |
+| **`Run tests`** | **5h 30m 13s — hit the 330m cap, failed** |
+| whole job | **5h 58m 51s of the 6h ceiling** |
+
+Pre-test overhead is 28m 29s, so the real ceiling for `Run tests` is
+about 5h 31m. A 330-minute step cap already claims essentially all of
+it: the job finished with 69 seconds to spare. Raising the step cap
+further cannot work, because the job cap is what binds.
+
+### The split itself is not the problem
+
+`split_tags()` divides by database seconds, and on paper it divided
+them almost perfectly:
+
+* half 1 (vm1): **11415** db-seconds, 98 groups
+* half 2 (vm2): **11412** db-seconds, 90 groups
+
+Three seconds apart out of three hours. The balancing commit does
+exactly what it claims.
+
+### kmemleak's overhead is not proportional to runtime
+
+What actually happened:
+
+* **vm2 finished**, 04:58:24, 1047 tests. 11412 db-seconds in 17904
+  real seconds ⇒ **×1.57**.
+* **vm1 was killed** mid-`redundancy`, after 78 of its 98 groups and
+  11 of `redundancy`'s 19 tests. 10182 db-seconds in 19813 real
+  seconds ⇒ **×1.95**.
+
+So the two halves are equal in database time and 24% apart in real
+time under kmemleak. The database is calibrated on runs without the
+detector, and the detector does not tax every group equally — the
+earlier bucketed measurement already showed the ratio falling as tests
+get heavier, so a split that equalises unweighted time necessarily
+mis-balances weighted time.
+
+### How far over
+
+vm1's 20 unstarted groups are worth 888 db-seconds; the 8 unreached
+`redundancy` tests took 348s without kmemleak in the 2026-08-27
+baseline (and `redundancy` as a whole took 1450s there against the
+database's 1437, so the database is accurate here).
+
+Projecting vm1 at its own realised ×1.95: **6h 10m**. Combined VM work
+is then 40118 seconds; a *perfect* split is 20059s each, or **5h 34m**
+against the **5h 31m** available.
+
+**Short by about three minutes.** Not a structural miss — a hair's
+breadth. That is worth stating plainly upstream, because it changes
+what kind of fix is called for: not sharding across more jobs, but any
+one of several small savings.
+
+Caveat on the number: vm1's ×1.95 is realised over the work it
+completed, and the projection assumes the remainder scales the same
+way. The remainder is `redundancy`'s raidz tests plus twenty small
+groups, which is a different mix, so treat 6h 10m as an estimate with
+a few minutes of slop either way. The conclusion survives the slop in
+both directions — at ×1.57 vm1 would still have needed 4h 58m, and the
+combined perfect split would still be 5h 16m, inside the cap only if
+nothing else regresses.
+
+### The lever nobody has pulled yet
+
+**This branch does not contain the `zio_crypt_key_unwrap` fix.** The
+leak adds roughly two permanently-tracked objects per key unwrap, and
+kmemleak's scan cost grows with the number of tracked objects. Over a
+five-hour run with the encryption groups in it, that set only grows.
+How much of the ×1.57/×1.95 is the leak feeding the detector its own
+tail is unmeasured, and it is the cheapest experiment left: rerun this
+branch with the fix on top and compare.
+
+Other savings in reach: the 19m 50s module build, and the fact that
+the 330-minute step already runs 69 seconds under a hard job ceiling
+that a slow runner could breach on its own.
+
+### Side observation: `mount_loopback` passed
+
+Without the losetup fix. Under the balanced split the `mount` group
+landed on vm2, which had fewer loop devices in flight, so the test
+never crossed the 8-device boundary. That is confirmation rather than
+good news: the failure is a function of which loop number the test is
+handed, so it is latent, not gone, and the fix is still worth having.

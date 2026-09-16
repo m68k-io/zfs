@@ -1668,3 +1668,71 @@ whether or not a builder turns the detector on: they are what makes
 `zfs-tests.sh -m` usable by anyone with a kmemleak kernel, after
 three and a half years of it crashing on the first test case. Only
 the CI enablement commit is blocked by this.
+
+### Cluster 10: the per-test scan is the overhead (2026-09-16)
+
+Measured directly on a box booted `kmemleak=on`, 1.57M tracked
+objects, rather than inferred from test durations. The three things
+`test-runner.py` does per test under `-m`:
+
+| op | cost |
+|---|---|
+| `echo clear` | 0.20 s |
+| **`echo scan`** | **4.5 s** |
+| `cat` | 0.20 s |
+
+`echo scan` is a synchronous walk of all tracked memory, so it costs
+the same whether the test ran for one second or sixty. That is why the
+overhead is not proportional to runtime: 1070 tests of under two
+seconds soak up 45 of the 246 minutes kmemleak adds, and the median
+added time in that bucket is 2 s — the scan, not the test.
+
+This box is far larger than the runner, so 4.5 s is an upper bound;
+the ~2 s implied by the bucket medians is the better estimate for CI.
+**Backing the real figure out of the next run is the point of it.**
+
+### The fix is five lines, and it is submittable
+
+`TestGroup.run()` passes `kmemleak=kmemleak and last`, so only the
+group's final test scans. 213 scans instead of ~2100.
+
+The reason this needs no group-start clear is worth keeping:
+`kmemleak_clear()` only greys objects carrying `OBJECT_REPORTED`, and
+nothing is reported until a scan runs. With no scan mid-group, a clear
+before the last test leaves exactly the same objects eligible as a
+clear before the first. The naive patch is the correct one.
+
+Cost: a leak is attributed to a group, not a test, and only the
+group's last test can FAIL from one. Rerunning that group narrows it.
+
+### What the saving does not fix
+
+Savings scale with test **count**, which is near-equal on both VMs, so
+the 73-minute gap between vm1 (371) and vm2 (298) survives untouched:
+
+| scan cost | vm1 after | vm2 after | fits 330? |
+|---|---|---|---|
+| 1.5 s | 352 | 277 | no |
+| 2.0 s | 345 | 270 | no |
+| 3.0 s | 333 | 256 | marginal |
+| 4.0 s | 320 | 242 | yes |
+
+vm1 needs a scan cost of about 3.4 s before it fits. So the run is a
+genuine coin flip, and vm1 remains the binding constraint.
+
+### Why no recalibrated database in this run
+
+Two reasons, and the second is the stronger one.
+
+It would test a configuration that cannot be submitted: the per-group
+multiplier spans 0.99x to 5.07x, so a kmemleak-calibrated database
+would mis-balance the eighteen builders that run without the detector.
+Upstream it would have to be a *second* database selected when `-m` is
+on — new machinery, and the balancing commit's author's call.
+
+And leaving it out is what makes the result readable. The group
+assignment stays byte-identical to the balanced run, so the per-VM
+difference is purely the scan saving, which is the one unknown in
+every estimate above. Even if vm1 busts the cap again, vm2 finishes
+and the per-test timings hand over the scan cost — enough to compute
+what rebalancing would buy without spending a second run on it.

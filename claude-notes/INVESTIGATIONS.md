@@ -1561,3 +1561,56 @@ landed on vm2, which had fewer loop devices in flight, so the test
 never crossed the 8-device boundary. That is confirmation rather than
 good news: the failure is a function of which loop number the test is
 handed, so it is latent, not gone, and the fix is still worth having.
+
+### Could the timing database be regenerated from kmemleak runs?
+
+Tony Hutter's PR ships `scripts/make-testdb.sh`, which reads a ZTS
+artifact tarball and prints the `testdb[]` array. So the mechanism
+exists. Two things to know before using it here.
+
+**We do have enough data — just barely, and not in one tarball.** The
+union of the two kmemleak runs (`claude/kmemleak_alpine`'s, where vm1
+finished, and `claude/kmemleak_balanced`'s, where vm2 finished) covers
+**1688 distinct passing tests, or 96.9% of the 2026-08-27 baseline's
+total runtime**. Only 69 tests have no kmemleak time at all, worth 449
+baseline seconds, and they are dominated by the eight `redundancy`
+tests vm1 never reached plus `refreserv_raidz` and the `zstream` group.
+
+But `make-testdb.sh` takes **one** tarball, globs its `vm*log.txt`,
+counts only `[PASS]` lines and sums per group with no completeness
+check. Feed it a run whose VM was killed and it silently emits a group
+total that is short by however much never ran — no warning, and the
+resulting split is confidently wrong. To use our data it would have to
+be fed the four VM logs merged and deduplicated by test name first.
+
+**The real obstacle is that the database is global.** Per-group, the
+kmemleak multiplier is nothing like uniform:
+
+| group | baseline | kmemleak | ratio |
+|---|---|---|---|
+| zfs_unmount | 83s | 421s | **5.07** |
+| zfs_snapshot | 38s | 187s | 4.92 |
+| zfs_rename | 91s | 403s | 4.43 |
+| zfs_clone | 145s | 533s | 3.68 |
+| ... | | | |
+| zdb | 352s | 408s | 1.16 |
+| btree | 180s | 183s | 1.02 |
+| checksum | 85s | 84s | **0.99** |
+
+65 groups with complete coverage on both sides, total ×1.90, and a
+per-group spread of **0.99 to 5.07**. Groups dominated by many short
+tests pay the fixed ~2.5s per-test scan cost over and over; groups
+dominated by a few long tests barely notice. That spread is exactly
+the 1.57-versus-1.95 imbalance of cluster 9, and it means a
+kmemleak-calibrated database would mis-balance the five builders that
+run without the detector. It has to be a *second* database selected
+when `-m` is on, not a replacement — which is a design question for
+whoever owns that commit upstream, not something to decide here.
+
+**And it would not be sufficient anyway.** A better database removes
+the imbalance; it does not create wall time. Cluster 9's arithmetic
+says a *perfect* split still needs about 5h 34m against the 5h 31m the
+job allows. So recalibration is necessary for kmemleak on this runner
+and still leaves it at zero margin or slightly over. Something else
+has to give as well — the 19m 50s module build, the leak feeding the
+detector its own objects, or the shape of the job itself.

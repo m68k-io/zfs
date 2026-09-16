@@ -1614,3 +1614,57 @@ job allows. So recalibration is necessary for kmemleak on this runner
 and still leaves it at zero margin or slightly over. Something else
 has to give as well — the 19m 50s module build, the leak feeding the
 detector its own objects, or the shape of the job itself.
+
+### Verdict: kmemleak on the Alpine runner is not realistic today
+
+Two things were checked before concluding this, both of which looked
+like they might close the gap.
+
+**The ksh93 source build is real but small.** Upstream's `alpine()`
+still does `git clone --depth 1 --branch 1.0` and builds, and the job
+log prices it exactly:
+
+```
+16:59:16  ##[group]Install ksh93 from Source
+17:01:39  ##[endgroup]
+```
+
+**2m 23s.** Worth removing on its own merits, but the 19m 50s module
+build is what dominates the 28m 29s of pre-test overhead, not this.
+
+**vm1's remaining work, priced from measured kmemleak times rather
+than scaled.** vm1 had **203** tests left, not the 69 that lack a
+kmemleak timing anywhere — those 69 are the *database coverage gap*,
+a different and much smaller set. 134 of the 203 have a measured
+kmemleak duration from the run where vm1 finished (**26.6 min**); the
+remaining 69 priced at baseline ×1.90 add **13.9 min**. Total **40.5
+min**, so vm1 projects to **371 min (6h 11m)** — agreeing to the
+minute with the independent ×1.95 scaling above, by a different
+method.
+
+**What that leaves.** Combined VM work is 371 + 298 = 669.4 min, so a
+genuinely even split is **334.7 min** per VM. Available is 331.4 min
+today, or **333.8** with the ksh93 build gone. **Short by about one
+minute.**
+
+So the honest figure is one minute, not the three estimated earlier —
+and it does not change the answer. A step cap above ~333 cannot be
+granted at all: the **job** would be killed at six hours before the
+step timed out, `Prepare artifacts` would never run, and the logs
+would be lost. That is the failure mode that makes "just try it"
+expensive.
+
+**Conclusion: not realistic on the current CI shape.** It is a coin
+flip with no margin, where losing the toss costs the evidence. It
+becomes realistic only if something with actual headroom changes —
+the module build, whatever the crypto leak fix takes off the
+detector's scan cost (still unmeasured), or the structure of the job
+itself. Banking even the ksh93 saving means shipping the prebuilt
+package, which upstream wants hosted under the OpenZFS organization
+first, so that minute is not free either.
+
+**What still lands regardless.** The `-m` fixes are worth having
+whether or not a builder turns the detector on: they are what makes
+`zfs-tests.sh -m` usable by anyone with a kmemleak kernel, after
+three and a half years of it crashing on the first test case. Only
+the CI enablement commit is blocked by this.

@@ -99,6 +99,20 @@ function run() {
     echo "****************************************************"
     echo "exit with value=$RV ($*)"
     echo "****************************************************"
+    # build/build.log is only the modpost phase; the compile that
+    # decides whether each test's .ko appears logs to build.log.<name>.
+    for f in build/build.log.* build/build.log config.log; do
+      if [ -f "$f" ]; then
+        echo "##[group]DEBUG tail of $f"
+        tail -n 200 "$f" || true
+        echo "##[endgroup]"
+      fi
+    done
+    if [ -d build ]; then
+      echo "##[group]DEBUG build dir"
+      ls -la build/config_modules 2>&1 | head -20 || true
+      echo "##[endgroup]"
+    fi
     echo 1 > /var/tmp/build-exitcode.txt
     exit $RV
   fi

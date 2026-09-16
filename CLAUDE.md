@@ -1395,3 +1395,40 @@ module loaded first, where no backlog can exist; that was not done.
 deadlocked two background jobs against each other, because each job's
 own command line contained the pattern. The `[l]` trick only stops
 `pgrep` matching itself, not sibling jobs that mention the same script.
+
+## Update (2026-09-16): kmemleak on the Alpine runner is off the table
+
+Brian asked for leak checking back "even if it is for only one of the
+builders". The answer, after two full experiments, is **not on the
+current CI shape**. The detail is in `claude-notes/INVESTIGATIONS.md`
+cluster 9; the short form:
+
+- The balanced run hit the 330-minute step cap with vm1 unfinished and
+  left the job at **5h 58m 51s of the six-hour ceiling**. Raising the
+  step cap is not available — the job cap binds first, and a job killed
+  at six hours never reaches `Prepare artifacts`, so the evidence is
+  lost with it. The true step ceiling is ~331 min, or ~334 with the
+  ksh93 source build removed.
+- Tony Hutter's split is sound: it divided the halves to within **three
+  database seconds**. The imbalance is that the per-group kmemleak
+  multiplier runs from **0.99x to 5.07x**, so a database built without
+  the detector cannot balance a run with it.
+- Even a perfect split needs **334.7 min** against **333.8** available.
+  One minute over, with nothing left that has headroom.
+
+**Consequences for the plan.** The three low-risk commits go first and
+are unaffected: dropping the argument-ordering cases from
+`zfs_get_006_neg`, the `is_kmemleak()` predicate fix, and the `-m`
+availability check. The `-m` fixes are worth landing on their own —
+they are what makes `zfs-tests.sh -m` usable at all after three and a
+half years — and only `CI: turn on kmemleak leak checking for the
+Alpine runner` is blocked.
+
+**If it is ever revisited**, the levers with real headroom are the 19m
+50s module build, whatever the `zio_crypt_key_unwrap` fix takes off
+the detector's scan cost (never measured — the balanced branch does
+not carry the fix), and the shape of the job itself. A recalibrated
+timing database is necessary but not sufficient, and would have to be
+a second database selected when `-m` is on, since replacing the
+generic one would mis-balance the five builders that run without the
+detector.

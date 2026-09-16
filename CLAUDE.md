@@ -919,9 +919,22 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
   `/home/claude/Development/linux` (both the debugfs-before-check
   ordering and the `SLAB_NEVER_MERGE` membership), and against this
   box's own running kernel: old check said ENABLED, new check says
-  disabled. Note the asymmetry -- the *negative* case is verified
-  empirically, the *positive* case only from source; no
-  kmemleak-enabled kernel was available to observe.
+  disabled.
+  - **The asymmetry recorded here is closed (2026-09-16).** For a long
+    time only the *negative* case was measured and the *positive* one
+    rested on reading `mm/kmemleak.c`, because no kmemleak-enabled
+    kernel was available. This box has now been booted `kmemleak=on`
+    and all three branches have a measurement behind them: detector
+    off, old says ENABLED and new says disabled; detector **on**, both
+    say ENABLED, with `kmemleak_object` showing 1.56M live objects in
+    `/proc/slabinfo`; slabinfo unreadable, the fallback returns
+    enabled as documented. Note what the two CI kmemleak runs do *not*
+    prove -- `zfs_get_009_pos` skipped in both, but those branches
+    carry the `-m` fixes and the enablement commit, not this
+    predicate, so that skip came from the old `[ -e ... ]` test and
+    says nothing about the new one. Worth stating in the PR
+    description, since "verified against a live detector" is exactly
+    what a reviewer will ask for.
 
 - **`claude/combined-review` is now six commits (2026-09-04),** the
   five from before plus the kmemleak fix, all on the rebased

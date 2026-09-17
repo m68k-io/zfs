@@ -1934,3 +1934,120 @@ there so userspace can be built with it by hand -- so the experiment
 branch drops it in a throwaway commit rather than changing what the
 real runner installs. A genuine 3.23 runner needs a version the
 release ships.
+
+## Cluster 13: both Alpine mysteries, root-caused (2026-09-17)
+
+Two things that had resisted explanation for weeks came out within an
+hour of each other, both because instrumentation replaced guessing.
+
+### The CONFIG_MODULES flake is objtool running out of signal stack
+
+The widened build-log capture finally caught it:
+
+```
+  CC [M]  config_modules/config_modules.o
+error: objtool [signal.c:118]: init_signal_handler: sigaltstack failed: Out of memory
+make[4]: *** [.../Makefile.build:289: config_modules/config_modules.o] Error 255
+make[4]: *** Deleting file 'config_modules/config_modules.o'
+```
+
+The compile starts, objtool dies, make deletes the object, the `.ko`
+is never linked, and `ZFS_LINUX_TEST_RESULT` -- which decides purely on
+`test -f build/config_modules/config_modules.ko` -- reports "no". The
+error the user sees is three layers away from the fault, which is why
+it read as a kernel configuration problem.
+
+**Why only Alpine.** `tools/objtool/signal.c` sizes its alternate
+signal stack with `SIGSTKSZ`:
+
+```c
+ss.ss_sp = malloc(SIGSTKSZ);
+ss.ss_size = SIGSTKSZ;
+if (sigaltstack(&ss, NULL) == -1)
+        ERROR_GLIBC("sigaltstack");
+```
+
+* **musl**: `SIGSTKSZ` is a compile-time constant. Measured here: 8192.
+* **glibc**: `sysdeps/unix/sysv/linux/bits/sigstksz.h` defines it as
+  `sysconf (_SC_SIGSTKSZ)` -- resolved at runtime from the kernel's
+  `AT_MINSIGSTKSZ`.
+
+The kernel returns `ENOMEM` from `sigaltstack()` when the size is under
+what a signal frame needs on that CPU, and that grows with the xsave
+area -- AVX-512, and especially AMX. On this box `AT_MINSIGSTKSZ` is
+**3632**, so musl's 8192 is fine. On a host with AMX it is well past
+8192 and musl's constant is too small.
+
+`virt-install` runs with `--cpu host-passthrough`, so the guest sees
+the host CPU directly, and the runner fleet is heterogeneous. That is
+why it is intermittent while packages, images and runner-image
+versions are provably identical between a passing and a failing run.
+The macro being named `ERROR_GLIBC` says plainly that no other libc was
+considered.
+
+**Fixes, in order of correctness.** Upstream, objtool should size the
+stack from `getauxval(AT_MINSIGSTKSZ)` and fall back to `SIGSTKSZ`;
+this is a kernel-side portability bug, not a ZFS one. In CI, one line
+avoids it: `--cpu host-model`, or explicitly masking `amx-*`/`avx512*`,
+keeps the guest's requirement small.
+
+**Confidence.** The mechanism is verified -- objtool's source, musl's
+constant, glibc's dynamic definition, the kernel's ENOMEM rule. The
+trigger is inferred: the runner CPU is recorded nowhere, so "failing
+runs land on AMX hosts" is not yet proven. Printing `AT_MINSIGSTKSZ`
+from `/proc/self/auxv` in the deps step would settle it -- failing runs
+should read over 8192, passing runs under.
+
+### The five-minute boot is cloud-init timing out
+
+With `console=ttyS0` made the last console so userspace output reaches
+the serial log, the gap has a single owner:
+
+```
+21:07:20  * cloud-init local ...Cloud-init v. 26.1 running 'init-local'. Up 4.34 seconds.
+21:07:20  DataSourceLXD.py[WARNING]: /dev/lxd/sock does not exist.
+          --- 301 seconds ---
+21:12:21   [ ok ]
+21:12:21  * Setting hostname ... dhcpcd ... sshd ...
+```
+
+Everything after it takes two seconds. The whole wait is datasource
+detection probing for an LXD socket that cannot exist on a libvirt
+guest.
+
+**And the deps script is why it still runs.** The Alpine branch removes
+`cloud-init`, `cloud-final` and `cloud-config` from the **default**
+runlevel. The service that stalls is **`cloud-init-local`**, which is
+in the **boot** runlevel and is never touched. `cloud-init clean
+--logs` immediately before poweroff then resets its state, so it
+re-probes from scratch on every later boot.
+
+I had cleared cloud-init earlier by checking that the `rc-update del`
+lines existed and stopping there, rather than checking whether they
+covered the service that matters. The lesson is narrow and worth
+keeping: confirming that a mitigation is *present* is not confirming it
+*applies*.
+
+**Fix**: remove `cloud-init-local` from the boot runlevel, or more
+robustly `touch /etc/cloud/cloud-init.disabled` once the deps run is
+done. Cloud-init is genuinely needed on the first boot, since the SSH
+key arrives through it, and never again.
+
+**Worth**: about five minutes off every Alpine job, every run. Not
+enough to rescue kmemleak, which needed roughly forty, but free. Open
+question: whether the two testing VMs pay the same 301 seconds. Their
+consoles are captured but earlier runs predate the console fix, so
+userspace was invisible in them.
+
+### UEFI: secure boot was the cause, and grub is the next obstacle
+
+Asking libvirt for a firmware without secure boot instead of letting it
+autoselect makes the Alpine uefi images boot -- confirming that the
+unsigned `bootx64.efi` was being refused by an enrolled-keys firmware.
+
+They then fail somewhere new: the uefi images boot through **grub**, not
+extlinux, so `/etc/update-extlinux.conf` does not exist. That breaks
+the console change, and would equally break the pre-existing
+`-virt` to `-stable` kernel switch, which edits the same file. A uefi
+Alpine runner therefore needs a grub path for the kernel switch, not
+just for instrumentation -- a larger job than adding an image URL.

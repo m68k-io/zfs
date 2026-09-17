@@ -5,6 +5,9 @@
 #
 # $1: VM hostname or IP address
 
+start=$SECONDS
 while pidof /usr/bin/qemu-system-x86_64 >/dev/null; do
   ssh 2>/dev/null zfs@$1 "uname -a" && break
 done
+echo "$1 answered $((SECONDS - start))s after we started waiting"
+

@@ -1861,3 +1861,76 @@ showed `/usr/lib/libzfs_core.so.3` and a "fixed" build reproduced the
 bug perfectly. Always confirm with `ldd` which library a validation
 run is exercising; this is the second time that trap has cost a wrong
 answer here.
+
+## Cluster 12: where the Alpine runner's boot time goes (2026-09-17)
+
+The build VM takes over five minutes to answer SSH after the deps step
+reboots it into the `-stable` kernel. Two instruments settled most of
+it: printing the elapsed wait in `qemu-wait-for-vm.sh`, and capturing
+vm0's serial console the way `qemu-5-setup.sh` already captures the
+test VMs'.
+
+**It is not the firmware, the bootloader or the kernel.** From the
+first recording anyone has of that VM booting:
+
+```
+SYSLINUX 6.04 ...
+[  0.000000] Linux version 7.1.5-0-stable ...
+[  3.908325] EXT4-fs (vda): mounted filesystem ... ro
+[  3.913317] Mounting root: ok.
+```
+
+**3.9 seconds** to root. Then the log stops dead for the rest of the
+five minutes.
+
+**And the silence was the real discovery.** The image boots with
+
+```
+console=ttyS0,115200n8 console=ttyAMA0,115200n8 console=tty0
+```
+
+The *last* `console=` becomes `/dev/console`. Kernel printk fans out
+to every console, which is why kernel lines reach the serial log, but
+userspace writes only to `/dev/console` -- so every OpenRC line has
+been going to a VGA console nobody captures. The time is all in
+userspace and has been invisible, not unlogged.
+
+Note the first boot is fast: the deps step's wait printed **0s**. Only
+the reboot into `-stable` is slow, which is the one nothing watched.
+
+### The wait is normal, not a symptom
+
+Worth recording because it nearly became a theory: the run that failed
+`CONFIG_MODULES` waited **5m 21s** and the run that built fine waited
+**5m 25s**. Slow SSH is the steady state here, not a sign of the
+flake.
+
+### UEFI: Alpine's loader is unsigned
+
+Adding the uefi image of each release to compare against bios, both
+uefi variants hang in `Start build machine` while both bios variants
+clear it in 62 seconds. The image itself is fine -- its ESP carries
+`/EFI/boot/bootx64.efi`, the removable path OVMF looks for -- but that
+binary is **unsigned**: PE32+ with an empty certificate table, no
+Authenticode signature.
+
+`--boot uefi=on` leaves libvirt to autoselect a firmware, and on
+Ubuntu the secure-enrolled descriptor normally outranks the plain one,
+so the guest most likely gets OVMF with Microsoft keys enrolled and
+refuses an unsigned loader. `debian13` uses the same flag and works
+because Debian ships a Microsoft-signed shim; Alpine does no Secure
+Boot at all.
+
+Not yet confirmed: why that manifests as `virt-install` hanging rather
+than the guest simply failing to boot. The step's own timeout log is
+what settles that, and it had not been read when this was written.
+
+### Also found: clang22 does not exist on Alpine 3.23
+
+`qemu-3-deps-vm.sh` pins `clang22` in the Alpine package list, which
+3.24 has and 3.23 does not, so dependency installation fails outright
+on 3.23. Nothing in the build or test scripts uses clang -- it is
+there so userspace can be built with it by hand -- so the experiment
+branch drops it in a throwaway commit rather than changing what the
+real runner installs. A genuine 3.23 runner needs a version the
+release ships.

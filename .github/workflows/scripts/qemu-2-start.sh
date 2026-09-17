@@ -44,11 +44,29 @@ case "$OS" in
     OSv="almalinux9"
     URL="https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2"
     ;;
-  alpine3-24)
-    OSNAME="Alpine Linux 3.24.1"
+  alpine3-23-bios|alpine3-23-uefi|alpine3-24-bios|alpine3-24-uefi)
+    # Alpine publishes a bios and a uefi cloud image for each release.
     # Alpine Linux v3.22 and v3.23 are unknown to osinfo as of 2025-12-26.
     OSv="alpinelinux3.21"
-    URL="https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/cloud/generic_alpine-3.24.1-x86_64-bios-cloudinit-r0.qcow2"
+    case "$OS" in
+      alpine3-23-*) AVER="3.23" ; APATCH="3.23.5" ;;
+      alpine3-24-*) AVER="3.24" ; APATCH="3.24.1" ;;
+    esac
+    case "$OS" in
+      *-uefi)
+        # Alpine's bootx64.efi is unsigned, so the secure-boot firmware
+        # libvirt would otherwise pick refuses to load it.
+        AFW="uefi"
+        OPTS[0]="--boot"
+        OPTS[1]="firmware=efi,firmware.feature0.name=secure-boot"
+        OPTS[1]="${OPTS[1]},firmware.feature0.enabled=no"
+        ;;
+      *)
+        AFW="bios"
+        ;;
+    esac
+    OSNAME="Alpine Linux $APATCH ($AFW)"
+    URL="https://dl-cdn.alpinelinux.org/alpine/v$AVER/releases/cloud/generic_alpine-$APATCH-x86_64-$AFW-cloudinit-r0.qcow2"
     ;;
   archlinux)
     OSNAME="Archlinux"

@@ -1736,3 +1736,110 @@ difference is purely the scan saving, which is the one unknown in
 every estimate above. Even if vm1 busts the cap again, vm2 finishes
 and the per-test timings hand over the scan cost — enough to compute
 what rebalancing would buy without spending a second run on it.
+
+## Cluster 11: the send-relay branch, reviewed and reworked (2026-09-17)
+
+A review of `claude/lzc_send_wrapper_splice_race` raised nine points.
+Every one was checked against the running system rather than argued,
+which settled two of them the other way.
+
+### The disputed mechanism: the commit was right
+
+The review held that commit 1's account could not be true, because
+stdout is fully buffered to a file and nothing flushes it mid-send, so
+both dry-run lines would reach the fd in a single write. `strace`
+says otherwise:
+
+```
+splice(pipe, NULL, 1</…/out2>, NULL, 65536, …  <unfinished ...>
+writev(1</…/out2>, [{"full\tsrp/fs@s1\t8416880", 22}, {"\n", 1}], 2) = 23
+<... splice resumed>)             = 0
+writev(1</…/out2>, [{"size\t8416880\n", 13}, {NULL, 0}], 2) = 13
+```
+
+Two writes straddling the in-flight `splice()`, exactly as claimed.
+The flush comes from `send_print_verbose()` ending with its own
+`fprintf(fout, "\n")`, which musl pushes out with the pending buffer.
+The corruption reproduced on the first attempt, and the residue proves
+the arithmetic: `size\t8416880\n` is 13 bytes, overwriting the first 13
+of the 23-byte `full\t…` line and leaving `1\t8416880`.
+
+**Lesson: "the code cannot do that" loses to one `strace`.**
+
+### What the destination-failure commit is actually worth
+
+The review read commit 3 as near-pointless, since the message the user
+sees is still "signal received". Measured, before and after:
+
+| build | exit | stderr |
+|---|---|---|
+| unfixed | **141** (SIGPIPE) | *empty* |
+| fixed | 1 | `warning: cannot send …: signal received` |
+
+A silent kill became a reported failure. The message is still wrong,
+and that part is not fixable here -- `func()` collapses output errors
+to `EINTR` and reports them before the wrapper has joined the relay
+thread, so naming the destination's error means changing where libzfs
+produces the message. The commit title was narrowed to what it does
+and the limitation is written into both the message and the test.
+
+### Real defects, fixed
+
+- **`send_copy()` spun forever on a zero-length write.** `off += 0`
+  never advances, so the worker would hold the pipe open at 100% CPU
+  and the send would hang rather than fail. Now `EIO`.
+- **The relay's error was preferred unconditionally**, so a `func()`
+  that failed on its own terms -- a bad dataset, reported before it
+  ever wrote -- had its error replaced. Now only when `func()` failed
+  with the pipe (`EINTR`/`EPIPE`) or succeeded.
+- **`errno` was set from `func()`'s return**, which for libzfs
+  callbacks is a `-1`/`1` status, not an errno.
+- **ksh93 reports death by signal as 256+signo**, not 128+signo, so
+  the test's diagnostic named the wrong signal. Verified: `269` under
+  ksh93, `141` under bash.
+- **A test hardcoded `/$POOL2/testfs/file`** beside lines using
+  `$send_ds`.
+
+### The design change: stop asking why, ask the kernel
+
+Commit 2 tested `O_APPEND` up front and relayed those by hand.
+Verified on this kernel, `splice()` refuses far more than that:
+
+```
+splice -> /dev/full      : EINVAL
+splice -> O_APPEND file  : EINVAL
+```
+
+Anything whose `file_operations` lack `splice_write` refuses the same
+way, before moving a byte. So the fallback now triggers on `EINVAL`
+from a relay that has moved nothing, whatever the reason, and the
+wrapper stops inspecting the fd's flags. One mechanism instead of a
+per-flag special case, and `/dev/full` now reports the real `ENOSPC`
+from `write()` rather than `EINVAL` from `splice()` -- confirmed in
+the trace.
+
+### Each commit verified standalone
+
+The rework had to keep every commit correct on its own, so commit 1
+keeps its `O_APPEND` guard and commit 2 removes it when it adds the
+fallback:
+
+| | dry-run | `zfs send >>file` | `> /dev/full` |
+|---|---|---|---|
+| unfixed | corrupt | 141, 0 bytes | 141, silent |
+| +commit 1 | correct | 141, 0 bytes | 141, silent |
+| +commit 2 | correct | **0, 8455168 bytes** | 141, silent |
+| +commit 3 | correct | 0, 8455168 bytes | **1, reported** |
+
+`zfs send >>file` was already dead before the branch, so commit 1
+leaves it exactly as it found it rather than regressing it.
+
+### Method note
+
+`LD_LIBRARY_PATH` has to point at the **top-level** `.libs`. This tree
+builds non-recursively, so there is no `lib/libzfs_core/.libs`, and
+pointing there silently loads the installed library instead -- `ldd`
+showed `/usr/lib/libzfs_core.so.3` and a "fixed" build reproduced the
+bug perfectly. Always confirm with `ldd` which library a validation
+run is exercising; this is the second time that trap has cost a wrong
+answer here.

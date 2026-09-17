@@ -31,6 +31,24 @@ function alpine() {
   sudo setup-devd udev
   echo "##[endgroup]"
 
+  # objtool sizes its alternate signal stack with SIGSTKSZ, which musl
+  # fixes at 8192 while glibc resolves it from the kernel.  The kernel
+  # refuses a stack below what a signal frame needs on this CPU, and
+  # that grows with the xsave area.
+  echo "##[group]Kernel minimum signal stack size"
+  python3 -c "
+import struct
+d = open('/proc/self/auxv','rb').read()
+for i in range(0, len(d), 16):
+    k, v = struct.unpack_from('<QQ', d, i)
+    if k == 51:
+        print('AT_MINSIGSTKSZ =', v, '(musl SIGSTKSZ = 8192)')
+        print('objtool will', 'WORK' if v <= 8192 else 'FAIL')
+    if k == 0:
+        break
+" || true
+  echo "##[endgroup]"
+
   # The uefi image boots grub and gets its cmdline from the shared
   # CMDLINE further down; only the bios image has extlinux to edit.
   case "$1" in

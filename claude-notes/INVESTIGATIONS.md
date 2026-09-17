@@ -2100,3 +2100,70 @@ silently in the wrong direction:
 
 The general lesson: when a change is "skip this bit for variant X",
 check what else lives after the bit being skipped.
+
+### Weekend task: the objtool patch
+
+Agreed to send this upstream at the weekend. Everything needed:
+
+**The bug.** `objtool`'s `main()` does `if (init_signal_handler())
+return -1;`, aborting the build when it cannot install an alternate
+signal stack. That stack exists only so objtool can print a readable
+message if its own stack overflows -- the file header says so. Losing
+it costs a nicety; aborting costs the build.
+
+**The trigger.** `init_signal_handler()` sizes the stack with
+`SIGSTKSZ`, a compile-time 8192 on musl and a runtime
+`sysconf(_SC_SIGSTKSZ)` on glibc. The kernel refuses anything under
+what a signal frame needs, and on x86 the strict check only engages
+when the FPU state size is *dynamic* -- verified in
+`sigaltstack_size_valid()`, which returns true immediately unless
+`fpu_state_size_dynamic()` or `strict_sigaltstack_size`. Dynamic
+xstate means XFD-managed features, i.e. **AMX**. AVX-512 is not
+dynamic and never trips it. So: musl plus an AMX host.
+
+**The patch.** Warn and continue instead of returning -1. Two lines,
+no libc assumptions, no `getauxval`. Keep it to that alone --
+adding dynamic sizing from `AT_MINSIGSTKSZ` invites a libc portability
+debate and doubles the review surface for a diagnostic convenience.
+
+**Framing.** Lead with "objtool aborts when it cannot install a
+crash-reporting convenience", a robustness bug nobody argues with.
+The musl detail belongs in the message as the trigger, not the thesis.
+"musl's SIGSTKSZ is wrong" is an argument that goes nowhere and is not
+needed.
+
+**How to validate without AMX hardware.** `strict_sas_size` is a boot
+parameter but only decides whether the check applies, not the
+threshold -- on a non-AMX CPU the sizes stay small and 8192 still
+passes, so it does not reproduce the failure. Instead `LD_PRELOAD` a
+stub making `sigaltstack()` return `ENOMEM`, and run objtool before and
+after: unpatched exits -1 and builds nothing, patched carries on.
+That demonstrates the behaviour a reviewer cares about, on musl.
+
+**Scope.** Not a ZFS bug at any layer -- it hits anyone building
+out-of-tree modules on musl on an AMX host. Our CI is already fixed by
+masking AMX, so this is worth doing on its merits, not because we need
+it.
+
+### The uefi VMs hang in grub, and the script already knew why
+
+With secure boot disabled the uefi images boot and get through the
+deps step, then hang in `Build modules` after `Domain 'openzfs'
+started` -- the VM never answers SSH.
+
+The cause is in `qemu-3-deps-vm.sh`, in a comment on the rpm branch:
+
+> Force GRUB itself onto the serial console.  These VMs have no
+> display, and without this grub2-mkconfig can emit
+> 'terminal_output gfxterm', which leaves GRUB stuck before the kernel
+> starts on a headless VM.
+
+Those `GRUB_TERMINAL_INPUT`/`GRUB_TERMINAL_OUTPUT` lines are set only
+for `almalinux*|centos*|fedora*`. Routing Alpine uefi into the shared
+grub cmdline step runs `grub-mkconfig` **without** them, so grub
+regenerates a config with `gfxterm` and stalls before the kernel.
+
+The risk was flagged when the grub path was proposed and then not
+carried into the change. The fix is to set the same two variables for
+any image taking the grub path, not just the rpm ones -- which is
+arguably where they belonged all along.

@@ -285,7 +285,11 @@ case "$1" in
     sudo -E rc-update add nfs
     sudo -E rc-update add samba
     sudo -E rc-update add dhcpcd
-    # Remove services related to cloud-init.
+    # Remove services related to cloud-init.  cloud-init-local is in the
+    # boot runlevel rather than default, and it is the one that matters:
+    # it probes for datasources a libvirt guest cannot have and times out
+    # for five minutes on every boot after the first.
+    sudo -E rc-update del cloud-init-local boot
     sudo -E rc-update del cloud-init default
     sudo -E rc-update del cloud-final default
     sudo -E rc-update del cloud-config default

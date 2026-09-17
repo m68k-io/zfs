@@ -1836,6 +1836,24 @@ leaves it exactly as it found it rather than regressing it.
 
 ### Method note
 
+**`make install` does not reload the kernel module.** Running the
+`rsend` group after installing this branch produced one unexpected
+FAIL, `send_realloc_dnode_interior`, and the first two theories were
+leftover test state and then the relay change itself -- neither right.
+`/sys/module/zfs/version` said `2.4.99-988`, while the freshly
+installed module was `2.4.99-1097`. That test was *added* by
+`e08bc2973` to verify a module-side fix, so it was being run against a
+module that predates what it tests. After `modprobe -r zfs` and
+`modprobe zfs` the group is **85 PASS, 1 expected SKIP, nothing
+unexpected**. Check the loaded version before believing any failure
+that smells like the module.
+
+En route to that, a `grep -c 'BEGIN record'` on `zstream dump` output
+counted 2 and briefly looked like the relay duplicating streams; the
+second match was the SUMMARY line, and the stream said
+`Total DRR_BEGIN records = 1` two lines below. Read the summary the
+tool already prints instead of grepping its prose.
+
 `LD_LIBRARY_PATH` has to point at the **top-level** `.libs`. This tree
 builds non-recursively, so there is no `lib/libzfs_core/.libs`, and
 pointing there silently loads the installed library instead -- `ldd`

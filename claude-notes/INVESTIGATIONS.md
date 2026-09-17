@@ -2051,3 +2051,52 @@ the console change, and would equally break the pre-existing
 `-virt` to `-stable` kernel switch, which edits the same file. A uefi
 Alpine runner therefore needs a grub path for the kernel switch, not
 just for instrumentation -- a larger job than adding an image URL.
+
+### Addendum to cluster 13 (2026-09-17, later)
+
+**Alpine's uefi image boots grub -- proven, not inferred.** Its
+`bootx64.efi` is full of `grub_efidisk_*` and `grub_memalign_dma32`
+symbols, and its root filesystem has `/boot/grub` with no
+`update-extlinux.conf` or `extlinux.conf` anywhere. So bios boots
+syslinux/extlinux and uefi boots grub, and every extlinux edit in the
+Alpine branch dies on the missing file under `set -eu`.
+
+**The console fix already existed for everyone else.** The shared
+cmdline in `qemu-3-deps-vm.sh` is
+
+```sh
+CMDLINE="console=tty0 console=ttyS0,115200n8"
+```
+
+-- `ttyS0` last, so userspace output reaches the serial log. Alpine is
+excluded from the block that installs it, and the stock image's own
+cmdline ends with `console=tty0`. So Alpine's five minutes were
+invisible because it skips a step the other distributions all take,
+not because nothing was logging. The `GRUB_CFG`/`GRUB_MKCONFIG`
+default case is already correct for an Alpine uefi image, which makes
+uefi support mostly a matter of narrowing one glob.
+
+**Why mask AMX rather than use host-model.** The kernel's minimum
+signal stack is the signal frame plus the CPU's xsave components:
+base around 3632 (measured), AVX-512 adds roughly 2k and stays under
+musl's 8192, AMX adds about 8k and does not. So AMX alone is the
+discriminator. `--cpu host-model` would also avoid it but takes
+AVX-512 with it, and ZFS has AVX-512 fletcher4 and blake3 the suite is
+meant to exercise -- that would trade an intermittent build failure
+for permanently reduced SIMD coverage.
+
+### Two shell bugs caught before they cost a run
+
+Both were mine, in the branch rebuild, and both are the kind that fail
+silently in the wrong direction:
+
+- `OPTS[1]="$OPTS[1],..."` expands element **0** followed by a literal
+  `[1]`. Needs `${OPTS[1]}`. Verified afterwards by printing what each
+  variant actually resolves to rather than reading the code again.
+- An early `return` for the uefi variant inside `alpine()` skipped the
+  **ksh93 install** that follows it. Replaced with a `case` scoping
+  only the extlinux edits, and checked by stubbing the function and
+  running both variants.
+
+The general lesson: when a change is "skip this bit for variant X",
+check what else lives after the bit being skipped.

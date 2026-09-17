@@ -717,3 +717,31 @@ underlying root-cause analysis behind each fix.
   full 40-character hash and silently returns nothing for an
   abbreviated one, which caused a duplicate full-matrix run earlier in
   the day.
+
+- **`claude/alpine_boot_time`** (2026-09-17) -- the Alpine CI
+  investigation branch, on top of `claude/combined-review` rather than
+  `baseline`, so its runs carry the seven real fixes and the test
+  phase is meaningful instead of noisy. Nine commits, clean ones
+  first so they cherry-pick out:
+  - `CI: report how long a VM takes to answer` -- prints the elapsed
+    wait in `qemu-wait-for-vm.sh`. Every platform, every run.
+  - `CI: keep the build VM's console log` -- captures vm0's serial
+    console the way the testing VMs' already are. Nothing recorded the
+    build VM's boot before this.
+  - `CI: stop cloud-init stalling every Alpine boot` -- the one-line
+    `rc-update del cloud-init-local boot`. Worth about five minutes a
+    job.
+  - `CI: name the Alpine runners by firmware, and add 3.23` -- four
+    variants, `alpine3-{23,24}-{bios,uefi}`, image derived from the
+    name, secure boot disabled for uefi.
+  - `CI: let the Alpine uefi image take the grub path` -- one glob
+    narrowed to `alpine*-bios`, extlinux edits scoped to bios.
+  - Four `**DEBUG**` commits on top: drop clang (3.23 has no clang22),
+    report `AT_MINSIGSTKSZ`, mask AMX, restrict the matrix to the four
+    variants.
+
+  Naming note: an earlier draft kept `alpine3-24` unsuffixed and
+  extracted an `edit_grub_cmdline` function so uefi could reuse it.
+  The explicit `-bios`/`-uefi` naming plus a one-token glob change is
+  the smaller diff and does not touch a code path every other
+  distribution runs through; that is what is on the branch.

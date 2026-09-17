@@ -31,6 +31,18 @@ function alpine() {
   sudo setup-devd udev
   echo "##[endgroup]"
 
+  # The uefi image boots grub and gets its cmdline from the shared
+  # CMDLINE further down; only the bios image has extlinux to edit.
+  case "$1" in
+  *-bios)
+
+  echo "##[group]Send the userspace boot to the serial console"
+  kopts=$(. /etc/update-extlinux.conf; echo "$default_kernel_opts")
+  sudo sed -i \
+    "s|^default_kernel_opts=.*|default_kernel_opts=\"$kopts console=ttyS0,115200n8\"|" \
+    /etc/update-extlinux.conf
+  echo "##[endgroup]"
+
   echo "##[group]Boot the -stable kernel instead of -virt"
   # -virt has CONFIG_SCSI_DEBUG disabled, which several ZTS tests
   # (zpool_expand, zpool_reopen, fault/auto_*, ...) need to simulate
@@ -42,6 +54,8 @@ function alpine() {
   sudo sed -i 's/^default=virt$/default=stable/' /etc/update-extlinux.conf
   sudo update-extlinux
   echo "##[endgroup]"
+    ;;
+  esac
 
   echo "##[group]Install ksh93 (prebuilt)"
   # Prebuilt vanilla ksh93 93u+m 1.0.10 for Alpine, published from
@@ -204,7 +218,7 @@ case "$1" in
     echo "##[endgroup]"
     ;;
   alpine*)
-    alpine
+    alpine "$1"
     ;;
   archlinux)
     archlinux
@@ -366,7 +380,7 @@ case "$1" in
 esac
 
 case "$1" in
-  alpine*|archlinux|freebsd*)
+  alpine*-bios|archlinux|freebsd*)
     true
     ;;
   *)

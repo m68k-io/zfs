@@ -1454,3 +1454,32 @@ timing database is necessary but not sufficient, and would have to be
 a second database selected when `-m` is on, since replacing the
 generic one would mis-balance the five builders that run without the
 detector.
+
+## Update (2026-09-17): the CI question is back with the maintainer
+
+Posted a reply on the upstream Alpine issue putting the capacity
+question to Brian rather than proceeding on assumptions.
+
+- **kmemleak does not fit, and the reply says so plainly.** Three runs
+  with `kmemleak=on`: plain master at a 300-minute step limit, and
+  twice with the balancing PR and 330. In all three one VM finished
+  and the other was still running when the limit hit. On the latest,
+  the finishing VM took 5h 02m and the other had **202 tests / ~38.5
+  min** left.
+- **The ask is an Alpine-specific runfile or equivalent** -- fewer
+  tests on Alpine, more CI work, in exchange for leak checking on one
+  runner. Explicitly framed as his call.
+- **`zfs_get_006_neg` is deliberately held.** Whatever selection
+  mechanism comes out of the CI decision may subsume it, so the ten
+  cases are not being dropped ahead of that.
+- `mount_loopback` and the `CONFIG_MODULES` flake went in as FYIs, no
+  answer requested.
+
+**A trap worth remembering: masking in `zts-report.py.in` saves no
+time.** It post-processes the results file after the suite has run
+(`zfs-tests.sh` builds `REPORT_FILE` and runs the report at the end),
+so it reclassifies a failure as expected without preventing the test
+from running. Only *not running* tests -- a runfile subset, tag
+selection, or a test that self-skips -- reduces the runtime. The draft
+originally offered "mask or runfile, same result, different mechanics"
+and that would not have survived review.

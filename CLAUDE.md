@@ -1107,14 +1107,23 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
     custom kernel for this and the maintenance burden killed it; he
     wants leak checking back "even if it is for only one of the
     builders."
-  - **`zfs_get_006_neg`: decided — option 5**, drop the
-    argument-ordering cases. His reasoning: lowest risk, won't break
+  - **`zfs_get_006_neg`: he leans to option 5**, drop the
+    argument-ordering cases -- "my inclination here would be option
+    5", not a ruling. His reasoning: lowest risk, won't break
     anything users depend on, and it is a single test. He also notes
     FreeBSD defaults to `POSIXLY_CORRECT`, so those cases only ever
     verified that the tests themselves pass arguments in the right
-    order. This unblocks the item the user called a blocker.
-    `claude/zfs_get_006_posixly_correct` already exists and is the
-    shape he picked. Held pending the kmemleak work.
+    order. `claude/zfs_get_006_posixly_correct` is that shape and is
+    ready, but do not read this as settled -- earlier entries here
+    said "decided" and "picked", which overstates the thread.
+    - **It may not be needed at all.** If per-platform test selection
+      gets built for kmemleak's sake, an Alpine runfile simply would
+      not list this test, and a mask would mark it expected -- either
+      subsumes it without deleting anything. So the CI question comes
+      first. Note the three are not equal in coverage: dropping the
+      ten cases keeps twenty running everywhere, a runfile drops all
+      thirty on Alpine, and a mask keeps them running but would hide
+      a genuine `zfs get` regression on musl.
   - **`send-c_stream_size_estimate`: he is taking it**, with "add
     this test to the exceptions list until we sort out the root
     cause" as the fallback. Off the user's plate.

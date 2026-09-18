@@ -2259,3 +2259,123 @@ value with AMX masked from the guest, which is what the debug branch
 does; an unmasked box reads 3632. It is consistent with the AMX theory
 and does not test it. That needs an unmasked control on the same
 runner, which no run has produced yet.
+
+### The CONFIG_MODULES trigger is confirmed: Intel, and AMX
+
+The earlier note set the test itself: printing `AT_MINSIGSTKSZ` in the
+deps step "would settle it -- failing runs should read over 8192,
+passing runs under". A branch that skips the test stages and gives the
+same Alpine image ten names takes ten samples a run at about sixteen
+minutes each instead of one at four hours. It produced the answer in
+the first run:
+
+    alpine3-24-b  failure  Intel Xeon 6973P-C         AT_MINSIGSTKSZ 11952
+    alpine3-24-d  failure  Intel Xeon 6973P-C         AT_MINSIGSTKSZ 11952
+    alpine3-24-g  failure  Intel Xeon Platinum 8573C  AT_MINSIGSTKSZ 11952
+
+Each printed `objtool will FAIL` before the build reached objtool, and
+each then failed exactly as the mechanism says:
+
+    error: objtool [signal.c:118]: init_signal_handler:
+        sigaltstack failed: Out of memory
+    checking whether CONFIG_MODULES is defined... no
+
+11952 against musl's compile-time 8192. Two different Intel
+generations, the same number. The one-in-ten rate is simply how often
+the scheduler puts the job on an Intel host.
+
+**A doubt worth recording.** Before this, every CPU sample we had --
+46, recovered from guest console logs -- was an AMD EPYC, which has
+neither AMX nor XFD and so never engages the kernel's check. I read
+that as evidence against the AMX explanation and argued it. It was
+evidence about the sample, not about the fleet: the pool is mixed and
+I had only ever seen the half that works. A negative sample from a
+pool you do not control is not a refutation, and the way to tell the
+difference was to make the failing case name its own hardware.
+
+The AMX-masking commit remains untested: it has still never run on a
+machine that has AMX to mask. The objtool patch is the real fix, and
+it now has a reproducer -- any runner reporting AT_MINSIGSTKSZ 11952.
+
+### 3.23 is not an old kernel, it is a missing package
+
+Alpine 3.23 failed 44 tests where 3.24 failed none, and the obvious
+suspect was the kernel: 3.23 ships linux-stable 7.0.10, 3.24 ships
+7.1.5. Alpine also ships linux-lts, and it is the *same* 6.18.52 build
+in both releases, which turns a confounded pair into a square:
+
+    |        | 6.18.52 (lts) | 7.0.10 | 7.1.5 |
+    | 3.23   | 45 unexpected | 44     | --    |
+    | 3.24   | 0             | --     | 0     |
+
+Same kernel, opposite results. The kernel was never the variable.
+
+The largest single failure, `zfs_send_sparse`, is a doubling loop under
+a ten minute cap. Timed per command, the send is flat and the compare
+doubles:
+
+    hole     zfs send | zfs receive    cmp
+    256MiB   0.07s                    25.2s
+    512MiB   0.08s                    51.7s
+    1GiB     0.07s                   102.1s
+
+A probe sending a 1GiB hole returns 178288 bytes in under a second on
+every runner and on a local box, so the send was never slow and the
+hole is never materialised. It is `cmp`. Traced on a 256MiB hole with
+the same skip offsets:
+
+    GNU cmp:      3 lseek,      6 read
+    busybox cmp:  0 lseek, 524292 read   (512 bytes at a time)
+
+`cmp` comes from diffutils, which is not in the Alpine package list.
+It is installed on 3.24 only as some other package's dependency, and
+on 3.23 nothing pulls it in, so busybox answers instead. The runner
+works by accident of the dependency graph.
+
+**Two traps here.** The first was reading an iteration total rather
+than per-command timings, which conflated send and compare and led to
+a confident, wrong story about holes being materialised. The second
+was asserting from timing alone that one implementation seeks and the
+other reads; true, but the syscall counts are what make it a fact
+rather than a guess, and they cost one strace.
+
+Also found on the way: master's Alpine package list pins `clang22`,
+which does not exist on 3.23, so the list cannot install there at all.
+Independent of everything above, and it will bite the next release
+bump.
+
+### mount_loopback, reproduced
+
+The test attaches with `losetup -f` and looks the device up again with
+`losetup --associated`. util-linux latches a flag when `/dev/loop` is a
+directory and then resolves every device name through it:
+
+    if (stat(_PATH_DEV_LOOP, &st) == 0 && S_ISDIR(st.st_mode))
+        lc->flags |= LOOPDEV_FL_DEVSUBDIR;
+    ...
+    if (lc->flags & LOOPDEV_FL_DEVSUBDIR) {
+        device += 4;                   /* skip "loop" */
+        dir = _PATH_DEV_LOOP "/";      /* "/dev/loop/" */
+    }
+
+The kernel pre-creates eight loop devices (BLK_DEV_LOOP_MIN_COUNT), and
+those have nodes under /dev/loop/. The ninth comes from
+/dev/loop-control and does not. Reproduced directly on Alpine:
+
+    img1  -> losetup --associated: /dev/loop/0
+    img8  -> losetup --associated: /dev/loop/7
+    img9  -> losetup --associated: (nothing)
+            backed by loop8; /dev/loop8 exists, /dev/loop/8 does not
+
+So it is deterministic at eight or more devices, and intermittent only
+because whether the suite reaches eight depends on what earlier tests
+left attached. Note `--associated` enumerates via sysfs, not by
+scanning the directory -- the device is found and then lost in name
+resolution, which is why the existing `/dev/loop/?[0-9]+` pattern in
+the test could never have helped: there is no line to match.
+
+**A trap.** I twice proposed a race with udev, and argued against the
+boot-set explanation on the grounds that a static directory would fail
+every time rather than intermittently. The reproduction shows
+/dev/loop/8 never appears at all. The framing I objected to was right;
+the intermittency came from somewhere I had not thought to look.

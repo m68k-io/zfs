@@ -50,7 +50,7 @@ jobs:
             os_selection='[]'
             ;;
           *)
-            os_selection='["alpine3-24", "almalinux10", "debian13", "fedora44", "freebsd15-1r", "ubuntu26"]'
+            os_selection='["alpine3-24", "alpine3-24-a", "alpine3-24-b", "alpine3-24-c", "alpine3-24-d", "alpine3-24-e", "alpine3-24-f", "alpine3-24-g", "alpine3-24-h", "alpine3-24-i"]'
             ;;
           esac
 
@@ -124,11 +124,11 @@ jobs:
 
     - name: Setup testing machines
       timeout-minutes: 5
-      run: .github/workflows/scripts/qemu-5-setup.sh
+      run: echo "**DEBUG** skipped - sampling the build stage only"
 
     - name: Run tests
       timeout-minutes: 300
-      run: .github/workflows/scripts/qemu-6-tests.sh
+      run: echo "**DEBUG** skipped - sampling the build stage only"
       env:
         CI_TYPE: ${{ needs.test-config.outputs.ci_type }}
 

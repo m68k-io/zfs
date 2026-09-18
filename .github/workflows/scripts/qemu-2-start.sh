@@ -44,7 +44,8 @@ case "$OS" in
     OSv="almalinux9"
     URL="https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2"
     ;;
-  alpine3-24)
+  alpine3-24|alpine3-24-a|alpine3-24-b|alpine3-24-c|alpine3-24-d|\
+  alpine3-24-e|alpine3-24-f|alpine3-24-g|alpine3-24-h|alpine3-24-i)
     OSNAME="Alpine Linux 3.24.1"
     # Alpine Linux v3.22 and v3.23 are unknown to osinfo as of 2025-12-26.
     OSv="alpinelinux3.21"

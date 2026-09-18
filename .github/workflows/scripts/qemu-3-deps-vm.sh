@@ -14,6 +14,25 @@
 set -eu
 
 function alpine() {
+  # The CONFIG_MODULES flake is objtool failing sigaltstack(SIGSTKSZ).
+  # musl fixes SIGSTKSZ at 8192; the kernel refuses a stack under what a
+  # signal frame needs on the running CPU.  Record both, and the CPU,
+  # so a failing job identifies its own hardware.
+  echo "##[group]Runner CPU and signal stack size"
+  grep -m1 '^model name' /proc/cpuinfo || true
+  python3 -c "
+import struct
+d = open('/proc/self/auxv','rb').read()
+for i in range(0, len(d), 16):
+    k, v = struct.unpack_from('<QQ', d, i)
+    if k == 51:
+        print('AT_MINSIGSTKSZ =', v, '(musl SIGSTKSZ = 8192)')
+        print('objtool will', 'WORK' if v <= 8192 else 'FAIL')
+    if k == 0:
+        break
+" || true
+  echo "##[endgroup]"
+
   echo "##[group]Install Development Tools"
   sudo apk add \
     acl alpine-sdk attr autoconf automake bash build-base clang22 coreutils \

@@ -2167,3 +2167,95 @@ The risk was flagged when the grub path was proposed and then not
 carried into the change. The fix is to set the same two variables for
 any image taking the grub path, not just the rpm ones -- which is
 arguably where they belonged all along.
+
+### That reading was wrong
+
+The console log settles it. `vm0/console.txt` from a run that does
+**not** carry the `GRUB_TERMINAL` change shows the whole grub menu,
+its countdown and the handover to the kernel, all on serial:
+
+    GNU GRUB  version 2.14
+     *Alpine Linux v3.24, with Linux virt
+      Alpine Linux v3.24, with Linux stable
+       The highlighted entry will be executed automatically in 10s.
+    Booting `Alpine Linux v3.24, with Linux virt'
+    Loading Linux virt ...
+
+OVMF redirects its own console to serial, so grub was never invisible
+and never stuck. Comparing a run with the change against one without
+it, the kernel cmdline and the failure point are identical, so the
+commit that sets those variables is inert.
+
+Same lesson as the cloud-init mitigation, in the other direction: a
+comment explaining why another distribution needs something is not
+evidence that this one is failing for that reason. Reading the
+console would have cost less than reasoning about it did.
+
+### What actually stops the Alpine uefi image
+
+Three faults, each hidden behind the one before it, and all three
+introduced by routing the uefi variant into the shared grub step that
+upstream had excluded Alpine from.
+
+**Root never mounts.** The step rebuilds the cmdline from scratch:
+
+    sudo sed -i -e '/^GRUB_CMDLINE_LINUX/d' /etc/default/grub || true
+    echo "GRUB_CMDLINE_LINUX=\"$CMDLINE\"" | sudo tee -a /etc/default/grub
+
+That pattern is a prefix match, so it removes `GRUB_CMDLINE_LINUX_DEFAULT`
+as well, and `$CMDLINE` has no `modules=`. Alpine's initramfs loads its
+drivers from that list. The block drivers come back on their own from
+the device aliases -- `vda1 vda2` are enumerated -- but the filesystem
+driver has no alias to come back from, `ext4` never appears in the log
+at all, and the guest lands in a shell it never leaves:
+
+    mount: mounting /dev/vda2 on /sysroot failed: No such file or directory
+    Mounting root: failed.
+    Launching initramfs emergency recovery shell.
+
+A working bios boot carries `modules=sd-mod,usb-storage,ext4,ena,gve,mana`
+and reaches `EXT4-fs (vda): mounted filesystem`. Carrying the list over
+from `/proc/cmdline` is what restores the boot. The exact `ENOENT` is
+not pinned down -- busybox `mount` reports it both for a missing device
+node and for a filesystem type it never got to try -- but the fix does
+not depend on resolving that.
+
+**grub boots the wrong kernel.** The menu above answers a question that
+had been left open: grub sorts `-virt` ahead of `-stable` and boots the
+first entry. `-virt` is the flavour without `CONFIG_SCSI_DEBUG`, which
+the bios image goes out of its way to avoid through extlinux. The title
+only exists once `grub-mkconfig` has written the menu, so read it back,
+pin `GRUB_DEFAULT` to it and generate a second time. An image with no
+`-stable` entry now stops the step instead of quietly booting `-virt`.
+
+**The test machines have no firmware to boot with.** `qemu-5-setup.sh`
+clones the build machine's disk into vm1 and vm2, but chooses firmware
+from its own `case`, where only `debian13` asks for efi. The Alpine uefi
+variants fell to the default and got SeaBIOS pointed at a disk with no
+bios loader. Both `console.txt` files are zero bytes -- nothing ever
+ran -- followed by five minutes of `No route to host`.
+
+The firmware choice is made independently in two scripts. Adding a
+variant means setting it in both, and only an empty console log made
+the second one visible.
+
+### Measurements from the first four-variant run
+
+**The cloud-init fix works.** Measured where the second boot actually
+waits, in `qemu-prepare-for-build.sh`:
+
+    alpine3-23-bios   vm0 answered 27s after we started waiting
+    alpine3-24-bios   vm0 answered 24s after we started waiting
+
+Against the roughly five minutes it used to take. Step durations are
+useless for this -- build time dominates and swamps the difference in
+both directions -- and comparing `Start build machine` is wrong
+outright, because that is the first boot and the 612s seen there
+earlier was the secure boot failure, not cloud-init.
+
+**`AT_MINSIGSTKSZ = 1776`** on both runners, against musl's static
+`SIGSTKSZ` of 8192, so objtool's `sigaltstack()` succeeds. This is the
+value with AMX masked from the guest, which is what the debug branch
+does; an unmasked box reads 3632. It is consistent with the AMX theory
+and does not test it. That needs an unmasked control on the same
+runner, which no run has produced yet.

@@ -14,13 +14,21 @@
 set -eu
 
 function alpine() {
+  # Which kernel this variant boots.  linux-lts is the same 6.18.52 on
+  # 3.23 and 3.24, so an -lts pair holds the kernel still while the
+  # userspace changes, and a -stable pair does the opposite.
+  case "$1" in
+    *-lts) KFLAVOR="lts" ;;
+    *)     KFLAVOR="stable" ;;
+  esac
+
   echo "##[group]Install Development Tools"
   sudo apk add \
     acl alpine-sdk attr autoconf automake bash build-base coreutils \
     cpio cryptsetup curl curl-dev dhcpcd eudev eudev-dev eudev-libs findutils \
     fio gawk gdb gettext-dev git grep jq libaio libaio-dev libcap-utils \
     libcurl libtirpc-dev libtool libunwind libunwind-dev linux-headers \
-    linux-tools linux-stable linux-stable-dev lsscsi m4 make nfs-utils \
+    linux-tools linux-$KFLAVOR linux-$KFLAVOR-dev lsscsi m4 make nfs-utils \
     openssl-dev parted pax procps py3-cffi py3-distlib py3-packaging \
     py3-setuptools python3 python3-dev qemu-guest-agent rng-tools rsync samba \
     samba-server sed strace sysstat tzdata util-linux util-linux-dev wget \
@@ -50,9 +58,9 @@ for i in range(0, len(d), 16):
   echo "##[endgroup]"
 
   # The uefi image boots grub and gets its cmdline from the shared
-  # CMDLINE further down; only the bios image has extlinux to edit.
+  # CMDLINE further down; the others have extlinux to edit.
   case "$1" in
-  *-bios)
+  *-bios|*-lts)
 
   echo "##[group]Send the userspace boot to the serial console"
   kopts=$(. /etc/update-extlinux.conf; echo "$default_kernel_opts")
@@ -69,7 +77,7 @@ for i in range(0, len(d), 16):
   # effect on the VM's next boot, which happens naturally when this
   # deps step powers off and qemu-prepare-for-build.sh starts the VM
   # back up for the build step -- no explicit reboot needed here.
-  sudo sed -i 's/^default=virt$/default=stable/' /etc/update-extlinux.conf
+  sudo sed -i "s/^default=virt$/default=$KFLAVOR/" /etc/update-extlinux.conf
   sudo update-extlinux
   echo "##[endgroup]"
     ;;
@@ -419,7 +427,7 @@ case "$1" in
 esac
 
 case "$1" in
-  alpine*-bios|archlinux|freebsd*)
+  alpine*-bios|alpine*-lts|archlinux|freebsd*)
     true
     ;;
   *)

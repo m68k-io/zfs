@@ -50,7 +50,7 @@ jobs:
             os_selection='[]'
             ;;
           *)
-            os_selection='["alpine3-23-bios", "alpine3-23-uefi", "alpine3-24-bios", "alpine3-24-uefi"]'
+            os_selection='["alpine3-23-bios", "alpine3-23-lts", "alpine3-24-bios", "alpine3-24-lts"]'
             ;;
           esac
 

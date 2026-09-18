@@ -43,7 +43,16 @@ function alpine() {
   # fixes at 8192 while glibc resolves it from the kernel.  The kernel
   # refuses a stack below what a signal frame needs on this CPU, and
   # that grows with the xsave area.
-  echo "##[group]Kernel minimum signal stack size"
+  echo "##[group]What this runner is, and what it gives objtool"
+  # The CPU is what decides the signal frame size, so record it next to
+  # the number.  Every sample so far has been an AMD EPYC, which has no
+  # AMX and no XFD -- on which the kernel check that the AMX theory
+  # rests never engages at all.
+  grep -m1 '^model name' /proc/cpuinfo || true
+  # -lts and -stable are different kernels, and the ZTS disk-fault
+  # tests need CONFIG_SCSI_DEBUG.  Say whether this one has it, so a
+  # missing scsi_debug is not read as a regression.
+  find /lib/modules -name 'scsi_debug.ko*' | head -3 || true
   python3 -c "
 import struct
 d = open('/proc/self/auxv','rb').read()

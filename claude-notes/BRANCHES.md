@@ -745,3 +745,96 @@ underlying root-cause analysis behind each fix.
   The explicit `-bios`/`-uefi` naming plus a one-token glob change is
   the smaller diff and does not touch a code path every other
   distribution runs through; that is what is on the branch.
+
+## Update (2026-09-18): four PRs open, fixes split out, flake caught
+
+**Five PRs opened upstream**, each a single commit on master. The
+earlier branches were based on `baseline`, which would have dragged its
+`**DEBUG**` runner-restriction commit into every PR; these are not.
+
+- #19132 `alpine/cloud-init` -- CI: stop cloud-init stalling every
+  Alpine boot. Measured 24-27s against roughly five minutes, taken
+  where the second boot actually waits rather than from step
+  durations, which are swamped by build time.
+- #19135 `alpine/losetup` -- ZTS: take the loop device name from
+  losetup itself. Also verified green on almalinux10, debian13,
+  fedora44 and ubuntu26 in an earlier combined-review run, so the new
+  `--show` path is exercised on glibc as well as musl.
+- #19136 `alpine/kmemleak` -- ZTS: look for the kmemleak file the way
+  it is later used. Note its CI passing means "nothing else broke":
+  the `-m` path is only reached with kmemleak enabled, which no
+  upstream runner does.
+- #19138 `alpine/dropTestCases` -- ZTS: zfs_get_006_neg: drop
+  argument-ordering cases.
+
+- #19139 `alpine/diffutils` -- CI: install diffutils on the Alpine
+  runner. A no-op on 3.24, where the package already arrives
+  transitively; it states a requirement the list otherwise leaves to
+  chance. The apk list is re-wrapped, and that re-wrap was the only
+  untested thing about it -- an earlier attempt split `libcap-utils`
+  across a line break, which would have installed two packages that do
+  not exist. The 3.24 job in the combined run installs it cleanly.
+
+**Held deliberately.** The three `lzc_send_wrapper` commits need more
+scrutiny than the others: they change shipped library code rather than
+a test or a CI script. Worth knowing for sequencing --
+`send-c_stream_size_estimate` fails *only* on Alpine without them
+(almalinux10, debian13, fedora44, ubuntu26 all pass), so enabling the
+runner off a master that lacks the fix means a red runner on day one,
+with a failure that looks Alpine-specific and is not. Either the relay
+PR lands first, or the test goes on the exceptions list, which the
+maintainer already offered.
+
+**Superseded.** `claude/getopt_long_permute` is a competing option to
+the one #19138 takes, not an independent fix.
+
+**Blocked, not broken.** `claude/ksh_alpine_prebuilt` waits on moving
+the package under the OpenZFS organisation, which the maintainer
+raised himself. Its filename also hardcodes `alpine3.24`; fix that
+while moving it.
+
+### The maintainer's reply, and what it unblocked
+
+kmemleak is explicitly not a requirement: "Let's not let that block
+getting Alpine added, running it without kmemleak like all the other
+runners is fine." So `claude/kmemleak_alpine`'s enablement commit
+stays local, and the possible future home is an optional runner over a
+subset of the suite.
+
+That also lapsed the condition holding `zfs_get_006_neg`: the hold was
+for the CI-side question to settle, in case a subsetting arrangement
+covered those cases anyway. It settled the other way -- full suite, no
+kmemleak, no Alpine-specific runfile -- so nothing will cover them
+incidentally. Note this is not the maintainer deciding the question;
+he leaned that way and so did we.
+
+### Sequencing from here
+
+Get the PRs accepted, clean up branches, re-test CI off the then
+master, and post the enablement PR if that is good. ksh93 after. The
+re-test is what decides whether the relay PR goes before the
+enablement PR or an exception does.
+
+### Working branches
+
+- **`claude/combined-fixes`** -- the six fixes on master with one
+  `**DEBUG**` commit restricting the matrix to Alpine 3.23 and 3.24.
+  3.23 cannot get past deps there: master's package list pins
+  `clang22`, which 3.23 does not have.
+- **`claude/configure_flake`** -- on `baseline`, for hunting the
+  CONFIG_MODULES failure. Skips the test stages and gives the same
+  image ten names, so one run is ten samples at about sixteen minutes
+  each rather than one at four hours. This is what caught it.
+- **`claude/alpine_boot_time`** -- the uefi work, now with the three
+  fixes that made those runners boot and test, plus `-lts` variants
+  holding the kernel still across releases, a sparse-send probe, and
+  CPU/AT_MINSIGSTKSZ reporting. The `**DEBUG**` commits no longer sit
+  strictly on top; harmless for cherry-picking by SHA, worth knowing
+  when lifting the clean ones out.
+
+One process note. Pushing a master-based branch to the fork fires
+every workflow, because only `baseline` carries the commit that
+rewrites the other workflows' triggers to `workflow_dispatch`. One
+push cost 35 runs to cancel. Branches meant for test runs belong on
+`baseline`; branches meant for PRs belong on master and should be
+pushed when you are ready for that.

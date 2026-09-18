@@ -9,9 +9,14 @@ set -eu
 # read our defined variables
 source /var/tmp/env.txt
 
-# wait for poweroff to succeed
-PID=$(pidof /usr/bin/qemu-system-x86_64)
-tail --pid=$PID -f /dev/null
+# wait for poweroff to succeed.  The build VM may already be gone by
+# the time we look -- it powers itself off at the end of the previous
+# step -- and under set -e an empty pidof would end the job here with
+# no output at all.
+PID=$(pidof /usr/bin/qemu-system-x86_64 || true)
+if [ -n "$PID" ]; then
+  tail --pid=$PID -f /dev/null
+fi
 sudo virsh undefine --nvram openzfs
 
 # cpu pinning

@@ -432,6 +432,24 @@ case "$1" in
     ;;
 esac
 
+case "$1" in
+  alpine*-uefi)
+    echo "##[group]Boot the -stable kernel instead of -virt"
+    # grub sorts -virt ahead of -stable and boots the first entry.
+    # -virt has CONFIG_SCSI_DEBUG disabled, which several ZTS tests
+    # need.  The title is only known once the first pass has written
+    # the menu out, so pin it and generate again.
+    TITLE=$(sudo sed -n "s/^menuentry '\([^']*stable[^']*\)'.*/\1/p" \
+      $GRUB_CFG | head -1)
+    test -n "$TITLE"
+    sudo sed -i -e '/^GRUB_DEFAULT/d' /etc/default/grub || true
+    echo "GRUB_DEFAULT=\"$TITLE\"" | sudo tee -a /etc/default/grub >/dev/null
+    sudo $GRUB_MKCONFIG -o $GRUB_CFG
+    sudo grep -m1 '^set default' $GRUB_CFG || true
+    echo "##[endgroup]"
+    ;;
+esac
+
 # reset cloud-init configuration and poweroff
 sudo cloud-init clean --logs
 if [ "$POWEROFF" == "1" ] ; then

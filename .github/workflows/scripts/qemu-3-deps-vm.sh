@@ -385,6 +385,21 @@ case "$1" in
     echo 'GRUB_TERMINAL_INPUT="serial console"' | sudo tee -a /etc/default/grub >/dev/null
     echo 'GRUB_TERMINAL_OUTPUT="serial console"' | sudo tee -a /etc/default/grub >/dev/null
     ;;
+  alpine*-uefi)
+    GRUB_CFG="/boot/grub/grub.cfg"
+    GRUB_MKCONFIG="grub-mkconfig"
+    # Same headless problem the rhel family has above.  grub-mkconfig
+    # picks gfxterm by default on an efi image, and nothing that comes
+    # after it is ever seen -- including the kernel.
+    echo 'GRUB_SERIAL_COMMAND="serial --speed=115200"' \
+      | sudo tee -a /etc/default/grub >/dev/null
+    sudo sed -i -e '/^GRUB_TERMINAL_INPUT/d' -e '/^GRUB_TERMINAL_OUTPUT/d' \
+      /etc/default/grub || true
+    echo 'GRUB_TERMINAL_INPUT="serial console"' \
+      | sudo tee -a /etc/default/grub >/dev/null
+    echo 'GRUB_TERMINAL_OUTPUT="serial console"' \
+      | sudo tee -a /etc/default/grub >/dev/null
+    ;;
   ubuntu24|ubuntu26)
     GRUB_CFG="/boot/grub/grub.cfg"
     GRUB_MKCONFIG="grub-mkconfig"

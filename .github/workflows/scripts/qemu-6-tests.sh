@@ -251,6 +251,31 @@ TAGS=$NUM/$DEN
 sudo dmesg -c > dmesg-prerun.txt
 mount > mount.txt
 df -h > df-prerun.txt
+# **DEBUG** How long does it take to send a hole?
+#
+# zfs_send_sparse walks a doubling seek offset with a 10 minute cap.
+# On one setup it reaches 4TiB in 8s; on another it dies at 4GiB.  That
+# is the difference between a stream that carries the hole as metadata
+# and one that materialises it, so measure it directly here instead of
+# inferring it from which tests time out three hours later.
+(
+  set +e
+  P=/var/tmp/sparse-probe
+  sudo truncate -s 2G $P.img
+  sudo zpool create probepool $P.img || exit 0
+  sudo zfs create probepool/fs
+  sudo dd if=/dev/urandom of=/probepool/fs/f bs=1 count=1 seek=$((1024*1024*1024))
+  sudo zfs snapshot probepool/fs@s
+  t=$SECONDS
+  bytes=$(sudo zfs send probepool/fs@s | wc -c)
+  echo "1GiB hole: stream $bytes bytes in $((SECONDS - t))s" | tee $P.txt
+  # A plain destroy: nothing else is using this pool, and forcing it
+  # would hide a failure worth seeing.
+  sudo zpool destroy probepool
+  sudo rm -f $P.img
+) > /var/tmp/sparse-probe.log 2>&1 || true
+cat /var/tmp/sparse-probe.log || true
+
 RV=0
 $TDIR/zfs-tests.sh -vKO -s 3GB -T $TAGS || RV=$?
 

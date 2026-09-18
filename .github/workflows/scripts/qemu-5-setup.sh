@@ -31,9 +31,11 @@ case "$OS" in
     # FreeBSD needs only 6GiB
     RAM=6
     ;;
-  debian13)
+  debian13|alpine*-uefi)
     RAM=8
-    # Boot Debian 13 with uefi=on and secureboot=off (ZFS Kernel Module not signed)
+    # Boot with uefi=on and secureboot=off (ZFS Kernel Module not signed).
+    # The alpine uefi image needs it too: its disk has no bios loader, so
+    # the test VMs sit there with an empty console until the step gives up.
     OPTS[0]="--boot"
     OPTS[1]="firmware=efi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no"
     ;;

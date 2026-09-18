@@ -388,6 +388,12 @@ case "$1" in
   alpine*-uefi)
     GRUB_CFG="/boot/grub/grub.cfg"
     GRUB_MKCONFIG="grub-mkconfig"
+    # Alpine's initramfs loads its drivers from the modules= it is
+    # given, and nothing else puts ext4 in.  Building a cmdline
+    # without it leaves the root mount failing into the recovery
+    # shell, so carry over the one the image booted with.
+    MODULES=$(sed -n 's/.*\(modules=[^ ]*\).*/\1/p' /proc/cmdline)
+    CMDLINE="$CMDLINE ${MODULES:-modules=sd-mod,usb-storage,ext4}"
     # Same headless problem the rhel family has above.  grub-mkconfig
     # picks gfxterm by default on an efi image, and nothing that comes
     # after it is ever seen -- including the kernel.

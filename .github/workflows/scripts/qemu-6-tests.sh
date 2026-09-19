@@ -251,8 +251,29 @@ TAGS=$NUM/$DEN
 sudo dmesg -c > dmesg-prerun.txt
 mount > mount.txt
 df -h > df-prerun.txt
+# **DEBUG** Sample steal time while the suite runs.
+#
+# Soft lockups show up on runs that pass as well as on the one that
+# hung, across unrelated tasks on every vCPU at once -- nmbd and a
+# kworker in the same second.  That looks like the guest losing the
+# physical CPU rather than a bug in it, but nothing records whether
+# it did.  /proc/stat's steal field says so directly.
+(
+  prev=0
+  while sleep 30; do
+    now=$(awk '/^cpu /{print $9}' /proc/stat)
+    printf '%s steal_total=%s steal_delta=%s load=%s\n' \
+      "$(date -u +%H:%M:%S)" "$now" "$((now - prev))" \
+      "$(cut -d' ' -f1-3 /proc/loadavg)"
+    prev=$now
+  done
+) > /var/tmp/steal.txt 2>&1 &
+STEAL_PID=$!
+
 RV=0
 $TDIR/zfs-tests.sh -vKO -s 3GB -T $TAGS || RV=$?
+
+kill $STEAL_PID 2>/dev/null || true
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

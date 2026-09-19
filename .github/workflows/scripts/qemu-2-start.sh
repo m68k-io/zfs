@@ -307,7 +307,7 @@ sudo virsh net-update default add ip-dhcp-host \
 sudo virt-install \
   --os-variant $OSv \
   --name "openzfs" \
-  --cpu host-passthrough \
+  --cpu host-passthrough,-amx-tile,-amx-int8,-amx-bf16 \
   --virt-type=kvm --hvm \
   --vcpus=4,sockets=1 \
   --memory $((1024*12)) \

@@ -51,7 +51,7 @@ jobs:
             ;;
           *)
             # default list
-            os_selection='["alpine3-24", "almalinux10", "debian13", "fedora44", "freebsd15-1r", "ubuntu26"]'
+            os_selection='["alpine3-24-01", "alpine3-24-02", "alpine3-24-03", "alpine3-24-04", "alpine3-24-05", "alpine3-24-06", "alpine3-24-07", "alpine3-24-08", "alpine3-24-09", "alpine3-24-10"]'
             ;;
           esac
 

@@ -323,16 +323,13 @@ not the BusyBox one). Steps taken to get `baseline` built and ZTS runnable:
         observed on CI — the PR's motivating example was wrong, and
         the user is closing `openzfs/zfs#18983` rather than keep a
         defensive check with no confirmed trigger.
-      - **Still open**: `claude/lzc_send_wrapper_splice_race`'s own
-        real CI run (job `97254204074`) *also* failed
-        `send-c_stream_size_estimate`, despite the branch's local
-        validation claiming to be "sufficient on its own" against the
-        original unfixed `estimate_size()`/`send_print_verbose()`.
-        `claude/send_progress_race`'s CI run passed it. Both branches
-        are based on `baseline`, neither stacked on the other, so
-        this isn't a merge-order artifact — genuinely unresolved why
-        the splice-race fix doesn't clear this on real CI when the
-        progress-thread workaround does. Not yet investigated further.
+      - **Resolved (retired 2026-10-11).** This bullet recorded that
+        the 2026-08-24 version of `claude/lzc_send_wrapper_splice_race`
+        still failed `send-c_stream_size_estimate` on real CI. That
+        version's resync re-did the rewind (fixed 2026-08-30), and the
+        side-by-side run of 2026-09-04 below shows the test passing
+        with the branch and failing without it. Left in place this
+        long, it read as an open contradiction; it was not one.
 - Basics are done: `baseline` builds and installs cleanly, kernel module
   loads, ZTS runs (both file-vdev and real-disk modes confirmed).
 - Six `claude/*` fix branches now exist, all locally validated (see
@@ -1483,3 +1480,42 @@ from running. Only *not running* tests -- a runfile subset, tag
 selection, or a test that self-skips -- reduces the runtime. The draft
 originally offered "mask or runfile, same result, different mechanics"
 and that would not have survived review.
+
+## Update (2026-10-11): three PRs open, Alpine enablement drafted
+
+- **Three PRs opened upstream, all from `alex-moch/zfs`, each one
+  commit on master.** The 2026-09-18 batch (`#19132`, `#19135`,
+  `#19136`, `#19138`, `#19139`) and the AMX workaround (`#19150`) are
+  all merged; nothing else of the user's is open.
+  - `#19347` -- CI: Update Alpine Linux to 3.24.2 and its Limine boot
+    (`alpine/3_24_2`; local `claude/alpine_3_24_2_limine`, same code).
+    3.24.2 ships only a hybrid image booting through Limine, with the
+    kernels on a ~113 MB FAT `/boot`. The commit points the static
+    `limine.conf` entry at `-stable`, drops the `kms` mkinitfs feature
+    (the ~90 MB initramfs filled `/boot`), and writes the limine
+    updater configs with both old and new key names before the upgrade
+    (with the old names only, the BIOS hook broke the boot sector and
+    the EFI hook made apk exit non-zero).
+  - `#19348` -- ZTS: mark send-c_stream_size_estimate as a known
+    failure (`alpine/splice-zts-probe`; local `claude/splice-zts-probe`,
+    same code). Takes the maintainer up on his offer in `#19052`.
+  - `#19349` -- CI: Add Alpine Linux to the default runners
+    (`alpine/default`), **draft**, one line in `zfs-qemu.yml`. Its
+    description says it is blocked by `#19347` and `#19348` and leaves
+    draft once both merge. Not stacked on them: one commit, so the
+    review stays in one place.
+- **The send relay will not be submitted.** `claude/lzc_send_wrapper_
+  splice_race` does fix the test in userspace (green on real CI since
+  2026-09-04), but the bug is the kernel's, and the user does not want
+  ZFS carrying a workaround for it. The kernel fix is being prepared
+  separately (`~/Development/kernel-findings/splice-fpos`). So the mask
+  is the plan, and the branch stays as a reference.
+- **Why only musl shows it is now pinned down** -- cluster 14 in
+  `claude-notes/INVESTIGATIONS.md`. Short form: musl's `stdout` is
+  line-buffered until its first write, so the "full" line reaches the
+  file while the relay's `splice()` is still blocked; glibc writes
+  both lines at exit, after the relay has finished.
+- **Next, once both blockers merge:** take `#19349` out of draft and
+  check its own CI. Then delete `claude/splice-zts-probe` and
+  `claude/alpine_3_24_2_limine` here -- after the *merge*, not on
+  approval.

@@ -2379,3 +2379,53 @@ boot-set explanation on the grounds that a static directory would fail
 every time rather than intermittently. The reproduction shows
 /dev/loop/8 never appears at all. The framing I objected to was right;
 the intermittency came from somewhere I had not thought to look.
+
+## Cluster 14: why `send-c_stream_size_estimate` fails only on musl (2026-10-11)
+
+Cluster 6 proved the mechanism (the relay's `splice()` writes back a
+stale offset even after moving nothing) and noted that musl "pushes out"
+the first line early. This pins down why that is musl-only, from
+source rather than from the trace.
+
+- **musl** (`src/stdio/stdout.c`): `stdout` is created with
+  `.lbf = '\n'`, i.e. line-buffered. Only `__stdout_write()`, which
+  runs on the first real write, checks `TIOCGWINSZ` and switches to
+  full buffering (`lbf = -1`). So the first newline always flushes,
+  even to a file: the "full" line is written while the relay's
+  `splice()` is still blocked, and the "size" line lands after the
+  rewind.
+- **glibc** (2.44, `libio/filedoalloc.c`, `_IO_file_doallocate`):
+  line buffering is chosen only for a character device that is a tty,
+  and decided before anything is written. To a file, both lines stay
+  in the buffer and go out in one `write()` at exit, after the relay
+  has returned, so the rewind has nothing to overwrite. Read from
+  source; not traced on a glibc host.
+- **ZFS** never flushes between the two lines: `estimate_size()` /
+  `send_print_verbose()` (`lib/libzfs/libzfs_sendrecv.c:1620-1668`) have
+  no `fflush()`, and the only `fflush(stdout)` calls in
+  `cmd/zfs/zfs_main.c` are in the progress-header code.
+
+So the race is general and the symptom is not: glibc could be hit too
+once output outgrows its 4 KiB buffer mid-relay (`-nPR` over many
+snapshots), which has not been tried. This is also why a buffering
+change in libzfs would only move the problem, and why the mask
+(`#19348`) is the honest fix on the ZFS side.
+
+**Reproducers.** `claude-notes/splice_fpos_zero_byte.c` -- one thread
+blocks in `splice(pipe, NULL, file, NULL, ...)`, the main thread writes
+a line, the pipe closes with nothing sent, the main thread writes a
+second line. Deterministic: 3/3 corrupt on 7.1.5-stable (26 bytes
+instead of 39, second line on top of the first). A `fork()` variant
+behaves the same.
+
+**`cat` cannot stand in for the relay in this case.** A shell version
+using `cat <fifo >&3` stayed clean. Traced: GNU cat 9.11 creates its
+own pipe and splices the input into *that* first
+(`pipe([4,5])`, `splice(0, NULL, 5, ...)`); with an empty input that
+returns 0 and cat exits without ever splicing into the real output.
+Replacing cat with a one-line `splice(0, NULL, 3, NULL, ...)` helper
+corrupted 3/3. With real data cat does reach the output and the
+general race shows (`producer | cat > out 2>&1`, marker every 500
+lines: 20/20), but the byte-level result is messier -- the file can
+come out longer as well as shorter -- so it is not a clean illustration
+of the dry-run case.

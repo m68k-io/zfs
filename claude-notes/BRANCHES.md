@@ -838,3 +838,44 @@ rewrites the other workflows' triggers to `workflow_dispatch`. One
 push cost 35 runs to cancel. Branches meant for test runs belong on
 `baseline`; branches meant for PRs belong on master and should be
 pushed when you are ready for that.
+
+## Update (2026-10-11): three PRs open, inventory
+
+**Merged since the last entry:** `#19132` cloud-init, `#19135`
+losetup, `#19136` kmemleak file, `#19138` zfs_get_006_neg cases,
+`#19139` diffutils (2026-09-19/21), and `#19150` amx-tile
+(2026-09-21). Their `alpine/*` branches on `alex-moch` can go.
+
+**Open:**
+
+| PR | alex-moch branch | local branch | state |
+|---|---|---|---|
+| `#19347` Alpine 3.24.2 / Limine | `alpine/3_24_2` | `claude/alpine_3_24_2_limine` (+ a DEBUG commit for 10 runners) | open |
+| `#19348` mask `send-c_stream_size_estimate` | `alpine/splice-zts-probe` | `claude/splice-zts-probe` (+ DEBUG) | open |
+| `#19349` Alpine in the default runners | `alpine/default` | none | draft, blocked on the two above |
+
+The PR commits and the local ones have the same patch-id, so the code
+is identical; the commit messages on `alex-moch` may differ (`#19348`'s
+was re-wrapped by hand before posting). `claude/splice-zts-probe` was
+amended and force-pushed on 2026-10-11 (shorter comment, plainer
+message); its one triggered run was cancelled.
+
+**Kept, not for submission:**
+
+- `claude/lzc_send_wrapper_splice_race` -- the userspace fix for the
+  send relay. Works, but the user will not submit a workaround for a
+  kernel bug; the mask covers the test instead.
+- `claude/getopt_long_permute`, `claude/zfs_get_006_posixly_correct`
+  -- alternatives to the merged `#19138`; both can go.
+- `claude/ksh_alpine_prebuilt` -- still waits on hosting under the
+  OpenZFS organisation.
+- `claude/kmemleak_alpine`, `claude/pr_kmemleak`, `claude/pr_buildlog`
+  -- experiments; the maintainer took kmemleak off the critical path.
+- `claude/alpine_boot_time`, `claude/configure_flake`,
+  `claude/combined-green`, `claude/combined-green-tile` -- test-run
+  branches from the September uefi/flake work.
+- Local only: `claude/objtool-amx-test`, `claude/sigaltstack-probe`
+  (the objtool AMX investigation), `pr19084`.
+
+None of these were deleted today; the cleanup waits for the open PRs
+to merge, per the standing rule.

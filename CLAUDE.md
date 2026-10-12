@@ -1545,3 +1545,41 @@ and that would not have survived review.
   the user's go-ahead.
 - **Open follow-up:** revert the `send-c_stream_size_estimate` entry in
   `zts-report.py.in` once a kernel with the splice fix ships in Alpine.
+
+## Update (2026-10-12, evening): kmemleak variant, draft PR `#19359`
+
+- **`#19359` -- CI: Add an alpine3-24-kmemleak variant**, draft, from
+  `alex-moch:alpine/kmemleak` (`1c170efce`, one commit). Answers
+  behlendorf's "could we enable kmemleak at boot?" in `#19052` as an
+  optional, by-hand runner. Three small changes:
+  `qemu-2-start.sh` matches `alpine3-24*`; `qemu-3-deps-vm.sh` gives
+  Alpine its own case branch and, for names containing `kmemleak`,
+  appends `kmemleak=on` to the `cmdline:` line of
+  `/boot/limine/limine.conf` (the 3.24.2 image has exactly one such
+  line, verified in the image); `qemu-6-tests.sh` passes `-m` for the
+  same names. Started with `specific_os=alpine3-24-kmemleak`; on
+  openzfs/zfs itself the qemu job skips `workflow_dispatch`, so this
+  only runs in a fork. The suffix scheme is meant to grow `edge`
+  (commented-out sed already in `qemu-2-start.sh`; needs
+  `--enable-linux-experimental` once edge passes `Linux-Maximum`) and
+  `llvm` (userspace only: Alpine kernels are GCC-built and a clang
+  module build against them fails on GCC-only flags, tested locally).
+- **First run, m68k-io 38292211323:** attempt 1 failed in `Setup
+  testing machines` -- both test VMs booted with `kmemleak=on` and the
+  detector initialised, reached the login prompt, but never answered
+  ssh, and the 5-minute step limit hit. Same CPU as a normal job (EPYC
+  7763, no AMX), boot messages identical apart from kmemleak's own; the
+  build VM also ran with kmemleak on and ssh worked throughout.
+  Attempt 2, same commit, got through setup in 37 s and is running
+  ZTS. So far a fluke, but one failure in two.
+- **Instrumented DEBUG branch ready, not pushed:**
+  `claude/alpine_kmemleak_debug` (`cd4a2ea1d`, worktree
+  `~/Development/zfs-kmemleak-debug`). Ten `alpine3-24-kmemleak-NN`
+  runners plus two plain controls, everything else dispatch-only, and
+  a `qemu-wait-for-vm.sh` that bounds and logs each ssh attempt and
+  dumps host, guest-agent and SysRq state at 90/240/480 s; setup
+  limit 15 min. The user asked for it only if the setup failure
+  repeats.
+- Local branches: `claude/alpine_kmemleak` (`55f7ef29e`, worktree
+  `~/Development/zfs-kmemleak`) is the m68k-io copy; the PR commit is
+  the user's reworded version of it, same behaviour.

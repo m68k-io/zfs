@@ -891,3 +891,14 @@ to merge, per the standing rule.
 The merge condition from the standing rule is now met for the first
 two rows, so those four branches can go, along with the merged
 September `alpine/*` branches. Nothing deleted yet: waiting on the user.
+
+## Update (2026-10-12, evening): kmemleak variant
+
+| PR | alex-moch branch | local branch | state |
+|---|---|---|---|
+| `#19359` alpine3-24-kmemleak variant | `alpine/kmemleak` (`1c170efce`) | `claude/alpine_kmemleak` (`55f7ef29e`, pattern `*-kmemleak*`, otherwise identical) | draft |
+
+`claude/alpine_kmemleak_debug` (`cd4a2ea1d`, local only) -- DEBUG
+instrumentation for the test-VM ssh hang, see CLAUDE.md. The old
+`claude/kmemleak_alpine` and `claude/pr_kmemleak` are superseded: their
+ZTS half merged in September, their CI half targeted extlinux.

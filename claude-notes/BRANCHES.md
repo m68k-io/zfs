@@ -879,3 +879,15 @@ message); its one triggered run was cancelled.
 
 None of these were deleted today; the cleanup waits for the open PRs
 to merge, per the standing rule.
+
+## Update (2026-10-12): two merged, one in review
+
+| PR | alex-moch branch | local branch | state |
+|---|---|---|---|
+| `#19347` Alpine 3.24.2 / Limine | `alpine/3_24_2` | `claude/alpine_3_24_2_limine` | **merged** 2026-10-12 |
+| `#19348` mask `send-c_stream_size_estimate` | `alpine/splice-zts-probe` | `claude/splice-zts-probe` | **merged** 2026-10-12 |
+| `#19349` Alpine in the default runners | `alpine/default` | none | out of draft, rebased (head `77c1a220bab8`), CI running |
+
+The merge condition from the standing rule is now met for the first
+two rows, so those four branches can go, along with the merged
+September `alpine/*` branches. Nothing deleted yet: waiting on the user.

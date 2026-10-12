@@ -1519,3 +1519,29 @@ and that would not have survived review.
   check its own CI. Then delete `claude/splice-zts-probe` and
   `claude/alpine_3_24_2_limine` here -- after the *merge*, not on
   approval.
+
+## Update (2026-10-12): both blockers merged, Alpine enablement in review
+
+- **`#19347` and `#19348` merged on 2026-10-12** (~16:59 UTC), both
+  approved by behlendorf. His note on `#19348`: the mask can stay "for
+  now"; once the kernel fix lands and reaches Alpine, revert it. The
+  CI failures on both PRs were on other distros (almalinux9, debian13,
+  ubuntu26 and the Detect job on `#19347`; freebsd16-0c on `#19348`),
+  not Alpine.
+- **`#19349` is out of draft.** behlendorf asked for the rebase; the
+  user rebased it on master (head `77c1a220bab8`, one commit) and
+  commented with the 20-runner check run 38169227892 on alex-moch
+  (2026-10-11, the two PRs cherry-picked): 19 of 20 Alpine jobs green.
+  The one failure, `alpine3-24-03`, was a 300-minute step timeout, not
+  a test result: vm1 finished with nothing unexpected, vm2 stopped
+  printing at 21:35 after `removal/removal_with_dedup`, so it most
+  likely hung in `removal/removal_with_errors`. Not investigated
+  further; the log artifact was not downloadable. If it repeats on
+  Alpine, that is the place to start. The PR's own CI was still running
+  at 18:15 local; review not yet requested back.
+- **Cleanup is now unblocked** for `claude/splice-zts-probe` and
+  `claude/alpine_3_24_2_limine` here and `alpine/3_24_2`,
+  `alpine/splice-zts-probe` on alex-moch, but not done yet: waiting on
+  the user's go-ahead.
+- **Open follow-up:** revert the `send-c_stream_size_estimate` entry in
+  `zts-report.py.in` once a kernel with the splice fix ships in Alpine.

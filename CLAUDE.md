@@ -1583,3 +1583,50 @@ and that would not have survived review.
 - Local branches: `claude/alpine_kmemleak` (`55f7ef29e`, worktree
   `~/Development/zfs-kmemleak`) is the m68k-io copy; the PR commit is
   the user's reworded version of it, same behaviour.
+
+## Update (2026-10-12, night): kmemleak setup hang root-caused -- two dhcpcd
+
+- **Symptom:** with kmemleak on, some test VMs booted to the login
+  prompt but never answered ssh; `Setup testing machines` timed out.
+  3 of 10 kmemleak runners in one instrumented run, 0 of 2 plain ones,
+  and 0 of 20 plain runners on 2026-10-11.
+- **Cause:** two `dhcpcd` at boot. `networking` brings up `eth0` via
+  ifupdown-ng, whose DHCP executor runs `/sbin/dhcpcd eth0` when dhcpcd
+  is installed; `qemu-3-deps-vm.sh` also did `rc-update add dhcpcd`
+  (added with the original Alpine runner, reason not recorded). The
+  service's dhcpcd daemonises before its privsep control socket is
+  ready; networking's dhcpcd then forwards to the half-initialised
+  master ("sending commands to dhcpcd process"), fails with
+  `dhcpcd_control_read: Invalid argument`, and the master logs garbage
+  errnos ("Out of memory" with 7.8 GB free, "No error information")
+  and exits or times out. eth0 never gets an address; sshd was
+  listening throughout. kmemleak slows allocation-heavy startup and so
+  widens the window; the 2-vCPU test VMs hit it, the 4-vCPU build VM
+  never did. The garbage-errno failure looks like a dhcpcd robustness
+  bug worth reporting upstream; not done.
+- **Images:** 3.24.1 ships `/etc/network/interfaces` with eth0 dhcp;
+  3.24.2 ships only `lo` and cloud-init's `eni` renderer adds eth0 at
+  the build VM's first boot. Runlevels identical, neither enables the
+  dhcpcd service, ifupdown-ng's executor identical. CI upgrades dhcpcd
+  to 10.5.2 on both (the September 3.24.1 kmemleak run did too). So
+  the double start predates 3.24.2.
+- **Fix verified:** dropping `rc-update add dhcpcd` -> 20/20 jobs,
+  40/40 test VMs up within 27 s, 36 of them with kmemleak. Logs:
+  `~/Development/logs/kmemleak-debug-38298003682` (before) and
+  `~/Development/logs/kmemleak-fix-38302427025` (after). The after-run's
+  dhcpcd probe was flawed (`ps` without `-e`; syslog `head` showed the
+  build VM's earlier boots, since test disks are clones) -- the result
+  rests on reachability and `rc-status`, not on the probe.
+- **Current branch:** `claude/alpine_dhcpcd` (worktree
+  `~/Development/zfs-dhcpcd`) on upstream master `68188d1ff`: DEBUG
+  (10 plain + 10 kmemleak runners, all other workflows dispatch-only),
+  cherry-pick of `#19359`'s commit, and the dhcpcd fix (authored
+  Alexander Moch). Pushed to m68k-io; run 38305777607.
+- **Cleanup done:** m68k-io now holds only `baseline`, `claude-meta`,
+  `master`, `claude/alpine_dhcpcd`; all other runs deleted. Locally
+  deleted the merged/superseded `alpine_3_24_2_limine`,
+  `splice-zts-probe`, `alpine_kmemleak(_debug)`, `kmemleak_alpine`,
+  `pr_kmemleak`, `getopt_long_permute`, `zfs_get_006_posixly_correct`
+  and their worktrees. `~/Development/zfs` is detached at `2bed45688`
+  because its 12 pre-existing `config/*.m4` edits block switching to
+  master. alex-moch's runs and branches untouched.

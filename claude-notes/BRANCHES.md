@@ -902,3 +902,30 @@ September `alpine/*` branches. Nothing deleted yet: waiting on the user.
 instrumentation for the test-VM ssh hang, see CLAUDE.md. The old
 `claude/kmemleak_alpine` and `claude/pr_kmemleak` are superseded: their
 ZTS half merged in September, their CI half targeted extlinux.
+
+## Update (2026-10-13): Alpine kmemleak / dhcpcd / ZTS fixes
+
+| PR | alex-moch branch | m68k-io / local branch | state |
+|---|---|---|---|
+| `#19359` kmemleak variant | `alpine/kmemleak` (`1c170efce`) | -- | open, ready for review |
+| `#19363` single dhcpcd | `alpine/dhcpcd` (`d27829373`) | `claude/alpine_dhcpcd` (`47a71b93b`, older message, DEBUG 10+10 below it; run 38305777607 linked from the PR) | open |
+| `#19382` zfs_get_009 maybe | `alpine/zfs_get_009_pos` (`4251f951f`) | `claude/zfs_get_009_kmemleak` (`a170a124e`, same patch) | open |
+| -- | -- | `claude/zpool_get_006_snapshot` (`71c7ea005`) | no PR yet |
+
+Test-run branches (DEBUG on top, not for submission):
+- `claude/alpine_kmemleak_x20` (`0dd5c3272`) -- 20 kmemleak runners,
+  run 38346336842.
+- `claude/alpine_kmemleak_x40` (`0bf4d535e`, local only) -- source of
+  `~/Development/alpine-kmemleak-x40.patch`; alex-moch
+  `alpine/kmemleak_x40` (`4d50057ea`), run 38346882272.
+- `claude/zpool_get_006_kmemleak_x20` (`295fb72c6`) -- validation of
+  the 006 fix, run 38427626308.
+
+Deleted 2026-10-12/13 (merged or superseded): `alpine_3_24_2_limine`,
+`splice-zts-probe`, `alpine_kmemleak`, `alpine_kmemleak_debug`,
+`kmemleak_alpine`, `pr_kmemleak`, `getopt_long_permute`,
+`zfs_get_006_posixly_correct`. Still kept from before:
+`lzc_send_wrapper_splice_race`, `ksh_alpine_prebuilt`, and the old
+experiment branches (`alpine_boot_time`, `configure_flake`,
+`combined-green(-tile)`, `pr_buildlog`, `objtool-amx-test`,
+`sigaltstack-probe`, `pr19084`) -- the user has not decided on those.

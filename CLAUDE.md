@@ -1630,3 +1630,65 @@ and that would not have survived review.
   and their worktrees. `~/Development/zfs` is detached at `2bed45688`
   because its 12 pre-existing `config/*.m4` edits block switching to
   master. alex-moch's runs and branches untouched.
+
+## Update (2026-10-13): four Alpine PRs open, kmemleak runner validated
+
+**Open upstream PRs (all from `alex-moch/zfs`, one commit each, on
+master `b060bcb1d`):**
+- `#19359` CI: Add an alpine3-24-kmemleak variant (`alpine/kmemleak`,
+  `1c170efce`) -- out of draft, ready for review. The user commented
+  with the 40-runner run (no leaks; Intel runners finish; the only
+  unexpected result is the `zfs_get_009_pos` SKIP).
+- `#19363` CI: start only one dhcpcd on the Alpine runner
+  (`alpine/dhcpcd`, `d27829373`). Root cause in the 2026-10-12 night
+  entry above; 196 test VMs up since the fix.
+- `#19382` ZTS: expect zfs_get_009_pos to SKIP under kmemleak
+  (`alpine/zfs_get_009_pos`, `4251f951f`): Linux `maybe` entry with a
+  new `kmemleak_reason`. The skip is Behlendorf's own (`c6ced7261`,
+  2016, 55:43 with kmemleak).
+- `#19349` (Alpine in the default runners) merged 2026-10-12 22:42 UTC:
+  `alpine3-24` now runs on every upstream PR.
+
+**Ready, no PR yet:** `claude/zpool_get_006_snapshot` (`71c7ea005`),
+"ZTS: read zpool_get_006_pos class properties together" -- cluster 16.
+Validation run m68k-io **38427626308** (`claude/zpool_get_006_kmemleak_x20`
+= master + #19359 + #19363 + #19382 + the 006 fix + DEBUG 20 kmemleak
+runners) started ~16:05 UTC, **not yet analysed**; the user shut down
+rather than wait. Expect: 006 fails 0/20 (was 21/60), finished VMs no
+longer list the 009 SKIP as unexpected, 40/40 VMs up. Analyse with
+`claude-notes/kmemleak-fetch.sh` (adjust run ids) and the method in
+`claude-notes/CI-RUN-2026-10-13-kmemleak-x60.md`.
+
+**Other findings this session (details in claude-notes):**
+- 60 kmemleak jobs: no leaks, 89.6% coverage, only Intel runners finish
+  -- `CI-RUN-2026-10-13-kmemleak-x60.md`.
+- `zarcsummary_001_pos` flake = ksh93 socketpair pipes giving
+  `ECONNRESET` without SIGPIPE; also hits fedora43 upstream; ksh93/ksh
+  #741 -- cluster 15, reproducers in `claude-notes/ksh-socketpair/`.
+  One-line zarcsummary fix (catch `ConnectionResetError`) **not
+  committed yet**. ksh93 fix designed (feature test + `tee(2)` peek),
+  **not implemented**; ksh checkout `~/Development/ksh` is the old
+  m68k-io fork, branch fresh from upstream `dev` if picked up.
+- Further kmemleak-only flakes, not pursued: `mmap_ftruncate` (soft
+  lockups), `redundancy_draid_spare4` (KILLED), `raidz_expand_001_pos`.
+
+**Environment state:** ZFS module (installed 2.4.99-1097 build, Sep 17)
+was loaded on this box for the local 006 test (`sudo modprobe zfs`); no
+pools left. `~/Development/zfs` (main checkout) is detached at
+`2bed45688` because its 12 pre-existing `config/*.m4` edits block a
+switch to master. Patch file for the 40-runner setup:
+`~/Development/alpine-kmemleak-x40.patch` (local branch
+`claude/alpine_kmemleak_x40`).
+
+**Next steps:**
+1. Read run 38427626308; if 006 is clean, open the 006 PR (evidence:
+   21/60 before, 0/20 after; local 324-check comparison).
+2. Commit the zarcsummary one-liner; possibly comment on ksh93/ksh#741
+   with the kernel analysis; ksh fix if wanted.
+3. Cleanup once merged: m68k-io branches `claude/alpine_dhcpcd`
+   (run 38305777607 is linked from #19363 -- keep until merged),
+   `claude/alpine_kmemleak_x20`, `claude/zfs_get_009_kmemleak`,
+   `claude/zpool_get_006_*`, their worktrees, and the runs; alex-moch
+   `alpine/kmemleak_x40`, `alpine/final-x20` and older `alpine/*`
+   branches of merged PRs (`3_24_2`, `splice-zts-probe`, `default`);
+   alex-moch has ~120 old runs, cleanup offered but not decided.

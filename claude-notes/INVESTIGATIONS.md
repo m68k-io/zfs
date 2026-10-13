@@ -2429,3 +2429,124 @@ general race shows (`producer | cat > out 2>&1`, marker every 500
 lines: 20/20), but the byte-level result is messier -- the file can
 come out longer as well as shorter -- so it is not a clean illustration
 of the dry-run case.
+
+## Cluster 15: `zarcsummary_001_pos` and ksh93's socketpair pipes (2026-10-13)
+
+**Symptom.** `cli_user/misc/zarcsummary_001_pos` fails now and then with
+`ERROR: eval zarcsummary | head > /dev/null exited 1`; stderr shows
+`ConnectionResetError: [Errno 104] Connection reset by peer` inside a
+`print`. **Not Alpine-specific**: across 20 upstream zfs-qemu runs
+(~550 executions, all distros) it failed once, on fedora43 (run
+38137981420), with the identical traceback; on Alpine 1 of ~130
+(m68k-io run 38305777607, plain runner 09). Too few failures to say
+Alpine is more prone.
+
+**Mechanism.**
+- ZTS runs tests under ksh93, which implements `|` with
+  `socketpair()` + `shutdown()` instead of `pipe()` when its feature
+  test `pipe_socketpair` passes (`src/cmd/ksh93/sh/io.c` redefines
+  `pipe(v)`; test in `src/cmd/ksh93/features/poll`). The Alpine CI
+  build log says `use socketpair() for peekable pipe() ... yes`. The
+  test checks kernel behaviour, so packaged ksh93 on glibc distros does
+  the same.
+- Linux: closing a stream socket with unread data sets `ECONNRESET` on
+  the peer (`unix_release_sock()`, `net/unix/af_unix.c:696-709` at
+  v7.3-rc4). A writer that starts a new write afterwards hits the
+  shutdown check first and gets `EPIPE` + `SIGPIPE`
+  (`af_unix.c:2422`, `out_pipe` 2518-2520). A writer that is *blocked*
+  in `sock_alloc_send_pskb()` wakes up, checks `sock_error()` first
+  (`net/core/sock.c:3002`) and gets `ECONNRESET` with **no SIGPIPE**.
+  That is TCP-like reset semantics, by design; the BSDs/macOS don't do
+  it. A real pipe always gives `EPIPE` + `SIGPIPE`.
+- ksh's feature test only checks the write-after-close case with no
+  unread data, so it wrongly concludes socketpairs behave like pipes on
+  Linux. ksh's own NEWS: POSIX mode uses `pipe(2)` "as the standard
+  requires"; `set -o posix` avoids the bug.
+- `cmd/zarcsummary`'s `handle_Exception` exits quietly on
+  `BrokenPipeError` and `ENOTCONN` (Rich Ercolani, 2021-05/06: the
+  ENOTCONN case was added because it happened "evidently only when run
+  inside the ZTS handler" -- the same socketpairs) but not on
+  `ConnectionResetError`.
+
+**Reproduced locally** (`claude-notes/ksh-socketpair/`): zarcsummary's
+handler under ksh 93u+m/1.0.11-beta 4/300 ConnectionResetError, bash
+0/300; handler also catching ConnectionResetError 0/600. GNU `seq 1
+200000 | head -1`: ksh 36/500 print `seq: write error: Connection reset
+by peer` and exit 1, bash 0/500.
+
+**Upstream state.** ksh93/ksh#741 "Occasional write error when writing
+to pipe" (ko1nksm, open since 2024-04-05). Maintainer McDutchie agrees
+it is a bug but asked whether it lies in ksh, coreutils or Linux;
+Pádraig Brady (coreutils) agrees it is a bug and suggests
+`yes | (sleep .1; head -n10 >/dev/null)` as a reliable repro. The
+kernel analysis above answers McDutchie's question. #327 (closed 2021)
+is the `/dev/stdin` symptom of the same socketpairs.
+
+**ZFS fix (not committed yet):** in `cmd/zarcsummary`,
+`if ex_cls in (BrokenPipeError, ConnectionResetError):`. One line, a
+real user-facing bug too (`zarcsummary | head` under ksh93).
+`zarcstat` has no such handler but no test pipes it into head.
+
+**ksh93 fix design (not implemented):**
+1. *Correctness*: extend `pipe_socketpair` in `features/poll` with the
+   blocked-writer check (`resetcheck.c`: fill the socketpair, block in
+   a write, reader closes with unread data, require SIGPIPE). Fails on
+   Linux (50/50), so `_pipe_socketpair` stays undefined and ksh uses
+   `pipe(2)`; all dependent code (`io.c`, `args.c`, `test.c`, the
+   `read -n` help text) already keys on that macro. Loses `<#pattern`
+   and early-return `read -n` on pipes (as POSIX mode today); likely
+   also fixes #327.
+2. *Performance*: without peeking, sfio's shared-stdin line reads
+   (`sfrd.c` -> `sfpkrd()`) fall back to one `read()` per byte.
+   Measured with `set -o posix` vs default: short lines 0.50 s vs
+   1.12 s (pipes faster), 200-byte lines 1.63 s vs 0.25 s (6.6x
+   slower). Fix: a third peek method in `src/lib/libast/sfio/sfpkrd.c`
+   using `tee(fd, scratch, n, SPLICE_F_NONBLOCK)` into a per-process
+   `O_CLOEXEC` scratch pipe (recreate when `getpid()` changes), `poll()`
+   on `EAGAIN`, `EINVAL` = not a pipe. Prototype (`peek.c`): 200-byte
+   lines 0.052 s vs 0.058 s socketpair vs 1.433 s byte-wise; short
+   lines 0.173 s vs 0.193 s byte-wise.
+   Ship both as one PR on ksh93/ksh `dev` (step 1 alone is a 6.6x
+   regression for long lines; step 2 alone changes nothing on Linux).
+   Rejected: keeping the read end open in ksh (writer blocks forever),
+   choosing pipe vs socketpair per reader (needs command resolution at
+   pipe creation, still breaks `yes | while read; do break; done`).
+
+**Not related to the splice f_pos bug** (different subsystem, no file
+offsets, kernel behaves as designed).
+
+## Cluster 16: `zpool_get_006_pos` fails a third of kmemleak runs (2026-10-13)
+
+**Symptom.** 21 of 60 kmemleak runners, 0 of 10 plain. Four signatures,
+all a comparison between two class properties where the later read has
+grown: `log used = allocated` (7: allocated 4096, used 67936256), `log
+available = free` (3), `special used < allocated` (9, ~131.7 MB vs
+~99.1 MB), `elog used < allocated` (1). All in the sections that write
+with `sync=always` and don't sync before measuring (Log, Special
+Embedded Log, Embedded Log); the test's own comment mentions the race.
+
+**Cause.** The test read each of a class's nine properties with its own
+`zpool get` (`get_class_prop`) and compared them. The ZIL keeps
+allocating in between; kmemleak slows every process start, widening
+the window.
+
+**Why one `zpool get` fixes it.** libzfs fetches all pool properties
+once (`zpool_get_all_props()`, one ioctl) and serves every requested
+property from that nvlist. In the kernel,
+`spa_prop_add_metaslab_class()` (`module/zfs/spa.c:416`) reads `size`,
+`alloc`, `dsize`, `dalloc` once and derives `free = size - alloc`,
+`available = dsize - dalloc`; only `alloc`/`dalloc` are separate
+counters, updated back to back in `metaslab_class_space_update()`
+(`metaslab.c:702-703`). Syncing before the reads is wrong for the log
+sections: they need ZIL blocks still allocated.
+
+**Fix.** `claude/zpool_get_006_snapshot` (`71c7ea005`): helper
+`get_class_props` reads the nine values with one `zpool get -Hp -o
+property,value` and fails if fewer than 9 come back; replaces six
+nine-line blocks (+38/-54). The pool-wide checks at the end still use
+separate reads; they never failed, left alone. Verified locally on this
+box (ZFS 2.4.99-1097 loaded, `zfs-tests.sh -t <worktree path>`):
+original 26 s PASS, modified 13 s PASS, same 324 checks in the same
+order, log-class values consistent. The race itself only shows under
+kmemleak: validation run m68k-io 38427626308 (20 kmemleak runners,
+started 2026-10-13 ~16:05 UTC, result not yet read).

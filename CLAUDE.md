@@ -1692,3 +1692,25 @@ switch to master. Patch file for the 40-runner setup:
    `alpine/kmemleak_x40`, `alpine/final-x20` and older `alpine/*`
    branches of merged PRs (`3_24_2`, `splice-zts-probe`, `default`);
    alex-moch has ~120 old runs, cleanup offered but not decided.
+
+## Update (2026-10-13, evening): `zfs_get_009_pos` runtime under kmemleak measured
+
+- behlendorf asked on `#19382` how long `zfs_get_009_pos` takes with
+  kmemleak today (the skip is from `c6ced7261`, 2016: 55:43). Measured
+  on alex-moch run 38435131549 (`alpine/zfs_get_009_pos-timing_x40`,
+  from `~/Development/zfs-get009-kmemleak-runtime-x40.patch`, local
+  branch `claude/zfs_get_009_runtime_x40`): master + `#19359` +
+  `#19363` + DEBUG (skip removed, only this test via `zfs-tests.sh -t`,
+  single-test timeout raised 600 s -> 3 h, 40 kmemleak runners).
+- 80/80 PASS. Min 5:24, median 17:46, max 22:50. By CPU (min/median/max):
+  Intel 6973P-C 5:24/5:38/5:48 (4), 8573C 7:22/7:42/7:54 (4), 8370C
+  7:48/8:17/8:45 (2); AMD 9V74 13:39/15:18/20:47 (22), 9V45
+  13:25/15:58/17:49 (6), 7763 15:51/18:54/22:50 (42). All 70 AMD runs
+  exceed the 600 s runfile timeout, no Intel run does.
+- Without kmemleak (10 plain runners of m68k-io 38305777607, in-suite,
+  not like-for-like): Intel 0:43-1:03, AMD 2:05-2:58 -- roughly a 7x
+  kmemleak factor on every CPU, and AMD already ~2.5-3x slower on this
+  test. My prediction beforehand (5-7 min) held only for Intel.
+- Conclusion: the skip stays, `#19382`'s `maybe` entry is the right fix.
+  The user posted the table on `#19382` (2026-10-13 17:58 UTC).
+  Logs + `analyze.sh`: `~/Development/logs/zfs_get_009-timing-38435131549`.

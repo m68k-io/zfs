@@ -1714,3 +1714,48 @@ switch to master. Patch file for the 40-runner setup:
 - Conclusion: the skip stays, `#19382`'s `maybe` entry is the right fix.
   The user posted the table on `#19382` (2026-10-13 17:58 UTC).
   Logs + `analyze.sh`: `~/Development/logs/zfs_get_009-timing-38435131549`.
+
+## Update (2026-10-13, night): SRSO "Safe RET" explains the AMD slowdown
+
+- behlendorf on `#19382` (18:17 UTC): "Indeed, way too long." Suggests
+  trimming `zfs_get_009_pos` under kmemleak (e.g. fewer `all_props`),
+  as `send_realloc_*` do, and the same for other long tests. Read as a
+  general idea, not a condition for `#19382`. Note for later: the call
+  count depends on `prop_numb` (16 combos x 5 depths x 2 calls) and the
+  cost per call on the tree (39 fs + 39 zvols, `DS_COUNT`), not only on
+  `all_props`.
+- **Cause of the Intel/AMD spread found.** All AMD guests (7763, 9V74,
+  and even Zen 5 9V45) boot with SRSO "Safe RET" (`srso_alias_return_thunk`
+  / `srso_return_thunk`, "Vulnerable: Safe RET, no microcode"); Intel
+  guests use the cheap ITS `its_return_thunk`. alex-moch run 38444757601
+  (`alpine/zfs_get_009_pos-mitigations_x40`, patch
+  `~/Development/zfs-get009-kmemleak-mitigations-x40.patch`): 20
+  runners `spec_rstack_overflow=off`, 20 `mitigations=off`, only
+  `zfs_get_009_pos`, skip removed. 80/80 PASS; parameters verified in
+  the boot log (no return thunk with SRSO off; no retpolines with
+  mitigations off). AMD median 17:58 (all mitigations) -> 8:30 (SRSO
+  off) -> 8:02 (all off); Intel 7:27 -> 7:13 -> 6:41. Over 600 s: 70/80
+  -> 0/40 -> 2/40. SRSO alone accounts for the AMD gap; the other
+  mitigations add ~10-15% on Intel. (My estimate beforehand put full
+  closure at only 20-30% -- wrong.) Tables per CPU were given to the
+  user in the #19382 style; logs + `analyze.sh` in
+  `~/Development/logs/zfs_get_009-mitigations-38444757601`.
+- **New suffixes** (user's naming): `*nosrso*` -> `spec_rstack_overflow=off`,
+  `*nomit*` -> `mitigations=off`, in the Alpine branch of
+  `qemu-3-deps-vm.sh` after the kmemleak check. Commit "CI: add nosrso
+  and nomit variants for the Alpine runner" (`3605e5bc7`, signed off,
+  written as a possible PR) on local `claude/kmemleak_nomit_x40`.
+- **Running, not yet analysed:** alex-moch run **38451666300**
+  (`alpine/kmemleak-nomit-full_x40`, started 19:02 UTC, from
+  `~/Development/kmemleak-nomit-full-x40.patch`): alex-moch master
+  `b060bcb1d` + #19363 + #19359 + #19382 + suffix commit + DEBUG, 40
+  `alpine3-24-kmemleak-nomit-NN` runners, **full suite**. Question:
+  does a kmemleak run fit into 300 min on AMD without mitigations?
+  Baseline with mitigations: 6/60 jobs finished both VMs (all Intel),
+  89.6% of tests ran, vm2 median 813/1101. Analyse with
+  `~/Development/logs/kmemleak-nomit-38451666300/analyze.sh` (copy in
+  `claude-notes/kmemleak-nomit-analyze.sh`, adjust the path).
+- Possible upstream follow-ups once measured: the suffix commit as a PR;
+  `mitigations=off` or `spec_rstack_overflow=off` for the disposable
+  CI test VMs in general (AMD runners ~2.5-3x slower on kernel-heavy
+  tests even without kmemleak); trimmed `zfs_get_009_pos`.

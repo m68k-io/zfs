@@ -1759,3 +1759,52 @@ switch to master. Patch file for the 40-runner setup:
   `mitigations=off` or `spec_rstack_overflow=off` for the disposable
   CI test VMs in general (AMD runners ~2.5-3x slower on kernel-heavy
   tests even without kmemleak); trimmed `zfs_get_009_pos`.
+
+## Update (2026-10-14): kmemleak with `mitigations=off` fits; `#19382` options
+
+- **Two full-suite kmemleak runs with `mitigations=off`** (both on
+  alex-moch master `b060bcb1d`, 40 `alpine3-24-kmemleak-nomit-NN`
+  runners, `kmemleak=on mitigations=off` verified in every boot log):
+  - **38451666300** (`alpine/kmemleak-nomit-full_x40`: #19363 + #19359 +
+    #19382 + nosrso/nomit commit + DEBUG): 34/40 jobs success, both VMs
+    finished in 39/40, 99.5% of tests ran, 0 kmemleak report files.
+    Slower VM per job min/median/max 2h54/4h03/4h54. Failures:
+    `zpool_get_006_pos` x2 (no fix in this run), `dio_write_verify`,
+    `large_dnode_008_pos`, `zed_slow_io_many_vdevs` + `zed_slow_io`
+    KILLED (single occurrences, look like flakes), and one timeout.
+  - **38527329846** (`alpine/kmemleak-nomit-zpool_get_006_pos-x40`: the
+    same + the 006 fix, same patch as `71c7ea005`): **40/40 success**,
+    both VMs finished everywhere, 100% of tests, 0 leak reports, no
+    unexpected results. Slower VM 2h44/3h47/4h44. -> validates the 006
+    fix (0/40 vs 2/40 without it under nomit; 21/60 with mitigations).
+  - Compare mitigations on (CI-RUN-2026-10-13-kmemleak-x60.md): 6/60
+    jobs finished both VMs, 89.6% of tests.
+- **Hang found (nomit-16, EPYC 7763, vm2):** `cli_root/zpool_offline/
+  zpool_offline_spare` hung at 1h30 after `zpool online testpool2
+  file-vdev-3`, i.e. in the next step `zpool offline -f` on the spare
+  that had just been used by `zpool replace`. KILLED after 10 min; vm2
+  then cascaded (18 KILLED, 65 FAIL) until the 300-min limit. The test
+  took ~3 s in the other 79 jobs. No kernel messages (Alpine has no
+  hung-task detector) -> cause unknown; possibly a real ZFS hang, watch
+  for a repeat. Log: `~/Development/logs/kmemleak-nomit-38451666300/
+  alpine3-24-kmemleak-nomit-16.log` + artifact.
+- **User's comment on `#19382`** (2026-10-14 07:33 UTC, issuecomment-
+  6163304080): reports the nomit run (34/40, one timeout, ~4 h), argues
+  no security risk in CI, could be scoped to the kmemleak runner;
+  proposes (1) drop the PR and the `is_kmemleak` skip, or (2) keep the
+  PR and skip only with `is_kmemleak && ! is_mitigation` (leans to 2).
+  Checked: claims correct; the timeout was the hang above, not
+  slowness; +10 min for 009 would exceed 300 min only for the slowest
+  job (4h54). `is_mitigation` does not exist in libtest.shlib -- my
+  suggestion: read `/sys/devices/system/cpu/vulnerabilities/
+  spec_rstack_overflow` and skip only on "Safe RET" (covers nosrso,
+  nomit, and Intel). Waiting for behlendorf.
+- **Next steps:** behlendorf's answer on #19382; PR for the 006 fix
+  (evidence: 21/60 -> 0/40, local 324-check comparison); possibly PR
+  the nosrso/nomit commit (`3605e5bc7`) and `mitigations=off` for the
+  kmemleak runner; trimmed `zfs_get_009_pos` (his suggestion); still
+  open from before: zarcsummary one-liner, ksh93 fix, cleanup.
+- Analysis scripts: `~/Development/logs/kmemleak-nomit-*/analyze.sh`,
+  copy in `claude-notes/kmemleak-nomit-analyze.sh` (fixed 2026-10-14:
+  `grep -c` exit 1 on zero leaks made `|| echo "?"` print every job
+  twice).

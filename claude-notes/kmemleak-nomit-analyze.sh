@@ -29,7 +29,11 @@ for f in alpine3-24-*.log; do
   last=$(echo "$s" | grep -aoE '\[vm[12]: [0-9:]+ +[0-9]+\([0-9]+\|[0-9]+\)\]' | tail -1 |
     grep -oE '\(([0-9]+)\|([0-9]+)\)' | tr -d '()' | awk -F'|' '{print $1+$2}')
   a="qemu-${f%.log}.tar.bz2"
-  leaks=$( [ -s "$a" ] && tar -tjf "$a" 2>/dev/null | grep -c '/kmemleak$' || echo "?")
+  if [ -s "$a" ]; then
+    leaks=$(tar -tjf "$a" 2>/dev/null | grep -c '/kmemleak$')
+  else
+    leaks="?"
+  fi
   unexp=$(echo "$s" | grep -aoE ' vm[12]: +(FAIL|SKIP|KILLED|PASS) +[^ ]+ +\(expected [A-Z]+\)' |
     sed -E 's/ +/ /g; s/^ //' | sort -u | tr '\n' ';')
   echo "${f%.log}|${cpu:-?}|${cmd:-?}|$fin|${last:-?}|$leaks|$unexp"

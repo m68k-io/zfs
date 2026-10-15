@@ -1930,3 +1930,16 @@ switch to master. Patch file for the 40-runner setup:
   take `before` (and the wait loop) from CLOCK_REALTIME_COARSE where
   available. Not reported anywhere yet (#19341 has crtime_001, a
   different test).
+- **ctime_001_pos fix built** (2026-10-15): branch `claude/ctime_coarse_clock`
+  (`380af7778`, worktree `~/Development/zfs-ctime`, on upstream master
+  22013c391), patch `~/Development/0001-ZTS-compare-ctime_001_pos-
+  timestamps-with-the-coarse.patch`. `coarse_time()` reads
+  CLOCK_REALTIME_COARSE (fallback time()) for `before` and the wait,
+  `after` stays time(). Introduced by 8486ea36f (gmelikov, 3 Sep), which
+  replaced the t2-t1 check (same clock) with a time() window. Evidence
+  in `~/Development/ctime-repro/`: `boundary.c` (touch right after the
+  clock ticks over: musl time() 30/30 stamped a second early, coarse
+  0/30), `align.c` + `run-compare.sh` (start the binary right after a
+  second boundary, on a file pool): old 10/40 failed with the CI
+  message, new 0/40, plus 0/5 with xattr=on. cstyle clean, applies to
+  master. Not pushed, no PR yet.

@@ -1808,3 +1808,61 @@ switch to master. Patch file for the 40-runner setup:
   copy in `claude-notes/kmemleak-nomit-analyze.sh` (fixed 2026-10-14:
   `grep -c` exit 1 on zero leaks made `|| echo "?"` print every job
   twice).
+
+## Update (2026-10-15): 120 kmemleak jobs with zfs_get_009_pos enabled
+
+- **Runs:** alex-moch **38609815452** (`alpine/kmemleak-nomit-009-full-x40`,
+  base b060bcb1d + dhcpcd + kmemleak + new 009 commit (`has_mitigations`,
+  `timeout = 900`) + 006 fix + nosrso/nomit + DEBUG x40) and m68k-io
+  **38617630151** (`claude/kmemleak_nomit_upstream_x20`, same on upstream
+  master 465d86a78, x20). The user re-ran both: attempt 1 started ~18:00
+  UTC, attempt 2 ~02:00 UTC -> 120 jobs. Re-runs replace artifacts with
+  the same name, so attempt-1 artifacts are mostly gone; jobs API needs
+  `/attempts/N/jobs`. Logs + scripts: `~/Development/logs/
+  kmemleak-nomit-{009-38609815452,upstream-38617630151}/a{1,2}/`,
+  `analyze.sh <repo> <run> <attempt>`, `summarize.py`, `failcause.py`
+  (first non-SUCCESS line of a failed test from the Test Summary group;
+  none = FAIL came from kmemleak).
+- **Outcome:** 105 success, 9 ran to the end with unexpected results,
+  5 hit the 300-min step, 1 build timeout (overloaded host). Attempt 1:
+  51/60, attempt 2: 54/60.
+- **zfs_get_009_pos:** always on vm1. 116 PASS, min/median/max
+  3:32 / 6:24 / 9:34, none over 600 s. 2 KILLED at 15:03/15:04 (900 s
+  limit) - both on the two overloaded hosts of attempt 1 (jobs 15, 25,
+  build 26/30 min, everything ~3x slow), which hit 300 min anyway.
+  Per CPU medians: 9V45 4:07, 9V74 5:14, 8573C 6:05, 8370C 7:03, 7763 7:15.
+- **VM times (113 jobs, both finished):** vm1 2:51/3:37/4:15, vm2
+  2:35/3:58/4:58; vm1 slower in only 28. vm2 is the bottleneck and its
+  max 4:58 is at the 300-min edge.
+- **Leaks:** 1 report in 73 jobs with artifacts: alex-moch attempt 2
+  job 13, vm2, `zpool_import_errata4` (test itself passed). 64-byte
+  `spa_log_sm_t` from `spa_log_sm_alloc()` <- `spa_generate_syncing_log_sm()`
+  <- `spa_flush_metaslabs()`, comm txg_sync; hex: sm_obj 11, txg 708,
+  nblocks 1, **mscount 1**. Both free paths (`spa_cleanup_old_sm_logs`,
+  `spa_unload_log_sm_metadata` with VERIFY0(mscount)) look complete and
+  mscount 1 says it was still in use -> possibly a kmemleak false
+  positive; not investigated further. Report saved in
+  `logs/kmemleak-nomit-009-38609815452/a2/leak-13/`.
+- **Hangs:**
+  - `zpool_offline_spare` hung again (m68k-io attempt 2 job 09, 8573C,
+    vm2: KILLED 10:02, then 18 KILLED) - 2nd occurrence after nomit-16
+    on 13 Oct, same cascade. Reproducible at ~1 in 100 jobs.
+  - **New:** alex-moch attempt 2 job 33 (9V74), vm2 froze in
+    `removal_with_errors` right after `removal_with_dedup`; no output
+    for 2.5 h, test-runner never printed KILLED (600 s kill did not
+    work), sysrq "backtrace of all active CPUs" printed nothing (no CPU
+    busy -> blocked tasks, not a spin). No dmesg collected.
+  - The 3rd non-slow-host timeout (alex-moch attempt 1 job 31, 9V45) was
+    just slow: vm2 still progressing at 4:59.
+- **Real (non-leak) failures, singles unless noted:** `raidz_expand_001_pos`
+  x3 (check_pool_status errors + "unable to open vdev tree"),
+  `zpool_expand_001_pos`/`_006_pos` (same job: "never expanded"),
+  `dio_read_verify_decline` ("Direct I/O was not declined: 89 direct
+  reads"), `large_dnode_008_pos` ("Holes in dnode array: pct empty 6 > 5",
+  2nd time), `ctime_001_pos`, `zarcsummary_001_pos` (ksh, cluster 15).
+- **Infra:** m68k-io attempt 1 job 14 lost its runner after ~3 h ("The
+  hosted runner lost communication with the server"), no log.
+  Pushing master to m68k-io starts every push workflow; cancel them AND
+  wait until they are completed before pushing a debug branch, else the
+  cancelled zfs-qemu run's always() Cleanup job queues behind the new
+  jobs (fix: `gh api -X POST .../runs/<id>/force-cancel`).

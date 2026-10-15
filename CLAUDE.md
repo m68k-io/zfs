@@ -1908,3 +1908,25 @@ switch to master. Patch file for the 40-runner setup:
   removal_with_errors x1), 1 slow 9V45. zfs_get_009_pos 175 PASS, max
   9:34. Leak reports: 1 (errata4). zpool_offline_spare hang: 3 of ~220
   jobs incl. 13 Oct.
+- **First matrix run of the new default** (alex-moch 38731367139, push
+  of `alpine/kmemleak-default`, 2026-10-15 12:00 UTC): plain
+  `alpine3-24` booted with `kmemleak=on mitigations=off`, vm1 3:48 /
+  vm2 4:06, zfs_get_009_pos PASS 7:21, only unexpected result
+  `ctime_001_pos` -> job red. almalinux10 red only from the Lustre
+  build (`modprobe lustre`: Cannot allocate memory, lustre-exitcode 1),
+  debian12 red from `dbufstats_002_pos` + `autotrim_config` (both in
+  #19341). Logs: `~/Development/logs/kmemleak-default-38731367139/`.
+- **ctime_001_pos on Alpine = musl time() vs coarse inode clock** (2 of
+  ~181 kmemleak jobs): "st_atime: BAD time change: t1(..880),
+  t2(..882), expected t2 within [..883, ..883]". ctime.c (8486ea36f,
+  1d73c26c2, gmelikov) requires t2 >= time(NULL)+2 taken before the
+  sleep. ZFS stamps with `gethrestime()` = `ktime_get_coarse_real_ts64`
+  (include/os/linux/spl/sys/time.h:69), which advances per tick. glibc
+  `time()` on x86_64 is `__vdso_time` = coarse basetime
+  (lib/vdso/gettimeofday.c:408), so it agrees with the inode clock.
+  musl `time()` is `clock_gettime(CLOCK_REALTIME)` (src/time/time.c),
+  up to one tick ahead. Right after a second boundary musl says N while
+  the inode gets N-1. Not kmemleak-specific, musl-specific. Fix idea:
+  take `before` (and the wait loop) from CLOCK_REALTIME_COARSE where
+  available. Not reported anywhere yet (#19341 has crtime_001, a
+  different test).

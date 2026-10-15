@@ -1895,3 +1895,16 @@ switch to master. Patch file for the 40-runner setup:
   -nokmemleak, -mitigations, -nokmemleak-mitigations on top of
   alex-moch alpine/kmemleak-default): m68k-io 38736940076, branch
   claude/kmemleak_default_combos_x20, started 2026-10-15 ~12:10 UTC.
+- **alex-moch 38609815452 attempt 3** (2026-10-15 08:00 UTC): 37/40
+  green. Job 16 (9V74): **`zpool_offline_spare` hang, 3rd time** (vm2
+  KILLED 10:01 at 01:23, then 20 KILLED, step hit 300 min). Job 27:
+  "Start build machine" timed out after 10 min with no output from
+  qemu-2-start.sh (image download or VM start, infra). Job 35:
+  `autotrim_config` FAIL (in #19341 as "fix ready"). 0 leak files, 009
+  39 PASS max 8:01, slower VM 2:55/3:59/4:34.
+- **Totals, 180 jobs:** 160 green (88.9%). Per attempt: evening 50/60,
+  night 54/60, morning 56/60. Slower VM 2:51/3:58/4:58 (171 jobs).
+  Timeouts 6: 2 overloaded hosts, 3 hangs (offline_spare x2,
+  removal_with_errors x1), 1 slow 9V45. zfs_get_009_pos 175 PASS, max
+  9:34. Leak reports: 1 (errata4). zpool_offline_spare hang: 3 of ~220
+  jobs incl. 13 Oct.

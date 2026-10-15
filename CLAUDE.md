@@ -1868,3 +1868,16 @@ switch to master. Patch file for the 40-runner setup:
   wait until they are completed before pushing a debug branch, else the
   cancelled zfs-qemu run's always() Cleanup job queues behind the new
   jobs (fix: `gh api -X POST .../runs/<id>/force-cancel`).
+- **Plan agreed 2026-10-15:** Brian chose option 1: plain `alpine3-24`
+  boots with `kmemleak=on mitigations=off` by default, with suffixes
+  `-kmemleak`, `-nokmemleak`, `-mit`, `-nomit` as overrides. Sequence:
+  wait for attempt 3 of both runs (started 2026-10-15 ~08:00 UTC) and
+  for #19382 + #19401 (both approved) to merge; then rebase master and
+  write the CI commit. Pitfalls noted: match suffixes with the leading
+  dash (`*kmemleak*` also matches `nokmemleak`), and let
+  qemu-6-tests.sh decide `-m` from the VM's kmemleak state, not the
+  name. Running-time summary for the switch: slower VM 2:51/3:58/4:58,
+  6 of 113 jobs >= 4:30; recommend Run tests step 300 -> 330 min.
+  Upstream baseline (since 1 Oct, no kmemleak): 79/3772 jobs failed in
+  Run tests (2.1%), ours 3/116 (2.6%) without overloaded hosts; data in
+  `~/Development/logs/upstream-baseline-202610/jobs.tsv`.

@@ -1823,9 +1823,11 @@ switch to master. Patch file for the 40-runner setup:
   `analyze.sh <repo> <run> <attempt>`, `summarize.py`, `failcause.py`
   (first non-SUCCESS line of a failed test from the Test Summary group;
   none = FAIL came from kmemleak).
-- **Outcome:** 105 success, 9 ran to the end with unexpected results,
-  5 hit the 300-min step, 1 build timeout (overloaded host). Attempt 1:
-  51/60, attempt 2: 54/60.
+- **Outcome:** 104 success (86.7%), 9 ran to the end with unexpected
+  results, 5 hit the 300-min step, 1 build timeout (overloaded host),
+  1 lost runner. Attempt 1: 50/60, attempt 2: 54/60. Without the 4
+  infrastructure failures: 12/116 = 10.3% not green (summarize.py fixed
+  2026-10-15: a job without log was counted as success).
 - **zfs_get_009_pos:** always on vm1. 116 PASS, min/median/max
   3:32 / 6:24 / 9:34, none over 600 s. 2 KILLED at 15:03/15:04 (900 s
   limit) - both on the two overloaded hosts of attempt 1 (jobs 15, 25,

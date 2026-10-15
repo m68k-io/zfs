@@ -1881,3 +1881,17 @@ switch to master. Patch file for the 40-runner setup:
   Upstream baseline (since 1 Oct, no kmemleak): 79/3772 jobs failed in
   Run tests (2.1%), ours 3/116 (2.6%) without overloaded hosts; data in
   `~/Development/logs/upstream-baseline-202610/jobs.tsv`.
+- **m68k-io 38617630151 attempt 3** (started 2026-10-15 08:00 UTC,
+  European morning): 19/20 green, no timeouts, 0 leak files, slower VM
+  2:53/4:00/4:15, zfs_get_009_pos 20 PASS (max 7:51). The one red job
+  (03, 9V74) had `mmp_active_import` + `raidz_expand_001_pos` FAIL, cause
+  unknown: Test Summary groups were "0 KiB" and the artifact has no vm1
+  test output (also missing in 2 other artifacts: alex-moch a1-35 both
+  VMs, a2-16 vm2, so leak counts there are incomplete). vm1 console:
+  "soft lockup - CPU#0/#1 stuck for 46s" at uptime 5008 s (~09:44), a
+  host stall ~40 min before the mmp test. `raidz_expand_001_pos` is now
+  4 of 140 jobs, the most frequent failure. Totals after 140 jobs:
+  123 green. Combination run (DEBUG, 5x each of alpine3-24,
+  -nokmemleak, -mitigations, -nokmemleak-mitigations on top of
+  alex-moch alpine/kmemleak-default): m68k-io 38736940076, branch
+  claude/kmemleak_default_combos_x20, started 2026-10-15 ~12:10 UTC.

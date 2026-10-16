@@ -2627,3 +2627,38 @@ artifacts in `~/Development/logs/flakes/`, `flake_counts.py`.
   failure in 428, which is what 0.18% predicts. So plain Alpine has
   the same distribution as the rest: a general flaky threshold.
 - Waiting for the 30 kmemleak jobs for the comparison.
+
+## 2026-10-16 evening: local follow-ups (state before a planned reboot)
+
+- **large_dnode local (in-tree build 2.4.99-1.1304.gd828205e9, 24 vCPU
+  VM, idle host)**: `~/Development/large-dnode-local/run.sh`, 50 runs
+  each. Pinned to 2 CPUs: pct 0% x50, holes 1/53/127 slots. All 24 CPUs:
+  1% x50, holes 2371/2623/2757 (~24 x 110, the unfinished per-CPU
+  chunk of each CPU). No tail at all, and dnodestats barely differ
+  (`dnode_alloc_next_block` = 4 in both). So the per-CPU chunks explain
+  only the small holes. The CI tail (thousands of slots) needs
+  something an idle VM does not trigger. Prime suspect remains the
+  blk_fill-based L1 search / jump to the end of the metadnode in
+  `dmu_object_alloc_impl`, which depends on txg sync timing.
+- **zpool_expand local**: `expand.sh 20` (whole group, `-I 20`), ZED
+  logs kept by an uncommitted local `zed_stop` change in
+  `~/Development/zfs-dio-eio/tests/zfs-tests/include/libtest.shlib`
+  (revert before reusing that tree), saved to `/var/tmp/zedkeep/<ts>/`.
+  After 8 passes all PASS, but `/dev/loop*` grows by 8 per pass (22, 30,
+  ... 70): loop nodes accumulate exactly as in CI (loop110+). Matches
+  the "never in the first passes" pattern. Next: check whether a pass
+  with many loop nodes fails, and ZED's log timing.
+- **#18833 review** (zed RESIZE=1 + label match, MorganaFuture, Brian
+  reviewed): code looks right. Hypothesis for the paired 001/006
+  failures: ZED restarted every pass by group setup, `zed_start` does
+  not wait for readiness, startup slower with many devices.
+- **Planned**: user reboots this VM with 2 vCPUs (+ maybe 8 GB), boot
+  options `kmemleak=on mitigations=off` (GRUB_CMDLINE_LINUX_DEFAULT,
+  then grub-mkconfig; not applied yet), host loaded with a Chromium
+  build. Then `~/Development/large-dnode-local/hunt.sh <passes>`:
+  flakes.run (copied into the zfs-dio-eio tree) once per pass, -m,
+  dnodestats per pass, watchdog, ZED logs, kmemleak hits, all into
+  `large-dnode-local/hunt/`.
+- **Flake hunt CI** (m68k-io 38927213515, alex-moch 38927951224 and
+  38928186683): the 30 kmemleak jobs were still running, nokmemleak half
+  already analysed above.

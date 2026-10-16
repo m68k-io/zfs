@@ -2675,3 +2675,79 @@ artifacts in `~/Development/logs/flakes/`, `flake_counts.py`.
 - **Flake hunt CI** (m68k-io 38927213515, alex-moch 38927951224 and
   38928186683): the 30 kmemleak jobs were still running, nokmemleak half
   already analysed above.
+
+## Cluster 19: two ZFS assertion panics behind the "hangs" (2026-10-16 night)
+
+Flake hunt, all 60 jobs (3 runs cancelled by hand at ~19:40 UTC, all
+artifacts uploaded). Script `~/Development/logs/flakes/analyze_all.py`,
+output `analysis-all.txt`. Artifacts come without a zip wrapper: fetch
+with `gh api .../artifacts/ID/zip > x.tar.bz2`.
+
+**Correction:** the earlier "offline_spare 0 / zvol 0 without kmemleak"
+counted only the jobs that had finished. The panicking jobs never finish
+(survivorship bias). With all jobs both panics happen without kmemleak
+too.
+
+1. `zpool_offline_spare`: `VERIFY3U(scnp->scn_min_txg, <,
+   vd->vdev_resilver_txg) failed (12 < 8)`, `PANIC at
+   vdev.c:3369:vdev_dtl_should_excise()`, txg_sync in
+   dsl_scan_done -> vdev_dtl_reassess_impl, the test in `zpool offline
+   -f testpool2 file-vdev-3` (vdev_fault -> vdev_dtl_required). Same
+   values every time. 15 VMs: kmemleak 9 in 2176 passes, nokmemleak 6
+   in 2819 passes (0.41% vs 0.21% per pass, not a real difference). On
+   7763, 9V45 and 9V74. 7 of the 15 VMs had no zpool_expand failure
+   before the panic.
+   - Hypothesis: `vdev_resilver_txg` is set at attach (spa.c, `zpool
+     replace` at txg 8) and only reset in vdev_dtl_reassess_impl when
+     the vdev has no DTL_MISSING and no DTL_OUTAGE left (vdev.c ~3517).
+     If the replace resilver finishes while the spare is offline, the
+     offline DTL keeps it from being reset. The resilver after `zpool
+     online` starts at scn_min_txg 12 (smallest DTL - 1), and the
+     assertion compares that against the stale 8. ASSERT only, so debug
+     builds only.
+   - Open: upstream runs this test in every job (common.run since
+     2026-03) and has 0 panics in ~7600 jobs, while we see ~0.3% per
+     pass. Something in our setup makes it more likely.
+2. `zvol_stress`: `VERIFY(zio_injection_enabled || !(zio->io_flags &
+   ZIO_FLAG_IO_RETRY))`, `PANIC at zio.c:5970:zio_dva_throttle_done()`
+   in z_wr_int. 4 VMs (2 kmemleak, 2 without). This is the "zvol_stress
+   hang" from cluster 18, upstream too (almalinux10 2026-10-11, ubuntu26
+   2026-10-12, before the zinject change e8a5d415a of 2026-10-13).
+   Mechanism: the test injects write errors (`zinject -d -f 10 -e io -T
+   write`), and failed writes get retried with ZIO_FLAG_IO_RETRY
+   (zio.c ~5427). Then `zinject -c all` sets the global
+   zio_injection_enabled to 0 while a retried zio is still in flight,
+   and the assertion reads the global at completion time. ASSERT only,
+   debug builds only. Local reproduction should be easy with a delay
+   before zio_dva_throttle_done.
+3. `large_dnode_008_pos` with all jobs: kmemleak pct_empty >0 17.2%,
+   >=3 2.7%, over 5% 3/2144. Without: 9.7%, 1.8%, 5/2797. kmemleak
+   shifts the small holes up but not the failure rate. The 2-job interim
+   numbers above (7% at >=3) were noise.
+4. Rest: send_encrypted_freeobjects 2 vs 1. zpool_expand 001/006 118
+   vs 612 FAIL (repetition artifact, less with kmemleak). Two VMs hung
+   in zpool_expand cleanup after `modprobe -r scsi_debug` with no
+   D-state task (watchdog-1..6, no panic). Not chased.
+5. Watchdog bug: the old watchdog ran `zpool status` before the debug
+   log and hung on it, so each panicked VM has one dump and no dbgmsg.
+   The repeated "sysrq: Show backtrace of all active CPUs" in the
+   consoles are not from our watchdog.
+
+**Next run** (pushed 2026-10-16 ~20:00 UTC, m68k-io 38958441345,
+branch `claude/offline_spare_panic_x20`, on upstream master 5d7c42cfd):
+- offspare.run (offline_spare alone, -I 5000): Alpine 6 kmemleak + 4
+  nokmemleak, almalinux10, debian13, ubuntu24, ubuntu26.
+- expspare.run (zpool_expand group + offline_spare, -I 450): Alpine 3
+  kmemleak + 3 nokmemleak.
+- DEBUG dbgmsg lines: "DEBUG attach" (resilver_txg set), "DEBUG reset
+  resilver_txg", "DEBUG excise" (resilver_txg, DTL range, scan range,
+  offline, state) right before the assertion.
+- Watchdog: on "PANIC at" dumps (watchdog-panic.txt) dmesg, stacks,
+  ZFS kthreads, dbgmsg tail 4000, then zpool status/events/history
+  under timeout, then kills test-runner so the VM ends.
+- 40-runner variant for alex-moch as a patch file, pushed by the user:
+  `~/Development/0001-DEBUG-CI-repeat-zpool_offline_spare-on-40-runners.patch`
+  (adds almalinux9, debian12, fedora44, ubuntu22, doubles Alpine).
+- Reading it: the other distros panic too -> generic bug that needs
+  repetition. Only expspare panics -> state from the expand group (ZED).
+  The DEBUG lines tell whether resilver_txg is stale.

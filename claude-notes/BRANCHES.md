@@ -946,6 +946,17 @@ so a leak near the end of a short test is reported by a later test.
 Worktree `~/Development/zfs-kmemleak-revert`. Delete after the result
 is reported.
 
+## `claude/offline_spare_panic_x20` (2026-10-16, DEBUG, m68k-io)
+
+On upstream master 5d7c42cfd (new rule: debug branches on upstream
+master). 2f4a120df. Worktree `~/Development/zfs-offspare`. Repeats
+zpool_offline_spare (offspare.run, expspare.run) on 20 runners with
+resilver_txg dbgmsg lines and a panic watchdog. Run m68k-io
+38958441345. The local branch `claude/offline_spare_panic_x40` is the
+40-runner variant, exported as
+`~/Development/0001-DEBUG-CI-repeat-zpool_offline_spare-on-40-runners.patch`
+for alex-moch. Details: INVESTIGATIONS.md cluster 19. Delete when done.
+
 ## `claude/nowhere_flakes_x20` (2026-10-16, DEBUG, m68k-io)
 
 Flake hunt for Alpine failures not tracked in #19341 or any open PR.

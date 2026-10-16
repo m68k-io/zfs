@@ -2550,3 +2550,27 @@ original 26 s PASS, modified 13 s PASS, same 324 checks in the same
 order, log-class values consistent. The race itself only shows under
 kmemleak: validation run m68k-io 38427626308 (20 kmemleak runners,
 started 2026-10-13 ~16:05 UTC, result not yet read).
+
+## Cluster 17: `large_dnode_008_pos` "Holes in dnode array" (2026-10-16)
+
+- The test runs 100 concurrent `xattrtest` on a `dnsize=auto`,
+  `xattr=sa` dataset, then reads `zdb -dd`'s "Dnode slots": `Total used`
+  is always 205006, `Max used` varies, and it fails when
+  (max - total) / max > 5%.
+- Upstream failures since 2026-10-01: only `alpine3-24`, twice (12% and
+  15%, no kmemleak). Ours: 2 in ~500 kmemleak jobs (6%, 9%).
+- **But the tail is on every distribution.** Passing runs print the
+  values too, so 428 upstream artifacts (about 40 per Linux OS, 2 MB
+  each, `inventory/fetch_large_dnode.sh`, `large-dnode-upstream.tsv`)
+  and 304 of ours (`large-dnode-pct.tsv`) give the distribution:
+  upstream pct_empty 0%:381 1%:30 2%:10 3%:5 4%:2. Share with pct > 0
+  per OS: alpine 7/38, fedora43 9/39, fedora44 8/39, ubuntu24 10/39,
+  others 0-3/39. Largest gaps: debian12 10687 slots (4%), alpine 8921,
+  almalinux8 8351 (kernel 4.18), ubuntu24 8501. No ordering by kernel
+  version, so the "newer scheduler" idea does not hold.
+- Reading: a general flaky threshold, not an Alpine bug. Whether Alpine
+  sits slightly further out in the tail (2 failures in 115 jobs vs 0 in
+  ~3900 elsewhere) needs the flake hunt's ~3000 plain Alpine samples.
+- Likely mechanism (not verified): `dmu_object_alloc` hands out object
+  numbers in per-CPU chunks (`os_obj_next_percpu`), and partially used
+  chunks become holes when allocators move between CPUs.

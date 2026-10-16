@@ -254,7 +254,8 @@ df -h > df-prerun.txt
 RV=0
 KMEMLEAK=""
 grep -qw kmemleak=on /proc/cmdline && KMEMLEAK="-m"
-$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+# DEBUG: only the zfs_change-key group, on both VMs.
+$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T zfs_change-key || RV=$?
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

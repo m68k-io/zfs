@@ -1952,4 +1952,7 @@ switch to master. Patch file for the 40-runner setup:
   Fix: branch `claude/failmode_dio_musl_eio` (worktree
   `~/Development/zfs-dio-eio`), `grep -qE "Input/output error|I/O error"`
   like 75c6fb77b (procfs_list_stale_read), patch in ~/Development.
-  Not run end to end locally: the installed module predates 602c474a2.
+  Verified locally 2026-10-16: built master + fix in the worktree, loaded
+  with scripts/zfs.sh, in-tree zfs-tests.sh -t. Upstream copy FAIL with
+  the CI message, fixed version PASS ("write: I/O error"), modules
+  unloaded afterwards. Logs ~/Development/logs/dio-eio-*.txt.

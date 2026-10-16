@@ -945,3 +945,26 @@ so a leak near the end of a short test is reported by a later test.
 (line 53), a failed unwrap, so each run should leak 2 x 64 bytes.
 Worktree `~/Development/zfs-kmemleak-revert`. Delete after the result
 is reported.
+
+## `claude/nowhere_flakes_x20` (2026-10-16, DEBUG, m68k-io)
+
+Flake hunt for Alpine failures not tracked in #19341 or any open PR.
+Upstream master a9418818b + the EIO fix + the kmemleak default + DEBUG:
+new `tests/runfiles/flakes.run` (zpool_expand_001/006_pos,
+zpool_import_errata4, zpool_offline_spare, large_dnode_008_pos,
+send_encrypted_freeobjects, zvol_stress + zvol_stress_destroy, each with
+its group's setup/cleanup), `zfs-tests.sh -r flakes -I 50` on both VMs,
+10 `alpine3-24-NN` (kmemleak) + 10 `alpine3-24-nokmemleak-NN` runners,
+and `qemu-6-watchdog.sh`: when the ZTS log is unchanged for 300 s it
+writes D-state tasks, their /proc stacks, sysrq-w, zpool status and the
+dbgmsg tail to `/var/tmp/watchdog-N.txt` (collected into the artifact),
+at most 6 dumps 10 min apart. `large_dnode_008_pos` logs pct_empty on
+every pass, so passing runs give the distribution too.
+Baseline before the run (local logs + 228 failed upstream jobs, see
+`~/Development/logs/inventory/`): large_dnode_008_pos only on Alpine
+(2 upstream without kmemleak, 2 ours with); send_encrypted_freeobjects
+and zpool_expand_* only ours; zpool_offline_spare also 1x almalinux8,
+zvol_stress also FreeBSD x9 and ubuntu26 x3; scrub_cancel, zed_* fail
+on many distros (left out); ctime_001_pos also once on debian13 (glibc,
+not explained by the musl time() cause, to check).
+Worktree `~/Development/zfs-nowhere`.

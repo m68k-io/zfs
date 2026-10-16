@@ -929,3 +929,19 @@ Deleted 2026-10-12/13 (merged or superseded): `alpine_3_24_2_limine`,
 experiment branches (`alpine_boot_time`, `configure_flake`,
 `combined-green(-tile)`, `pr_buildlog`, `objtool-amx-test`,
 `sigaltstack-probe`, `pr19084`) -- the user has not decided on those.
+
+## `claude/kmemleak_revert_test_x20` (2026-10-16, DEBUG, m68k-io)
+
+Answer to Brian's "intentionally introduce a leak to make sure kmemleak
+works". Upstream master a9418818b + the EIO fix (PR `#19424`) + the
+kmemleak default (PR `#19426`) + a revert of the `zio_crypt_key_unwrap()`
+uio fix (PR `#19116`, written as its own DEBUG commit so no upstream
+hash lands in a commit message) + DEBUG: 20 `alpine3-24-NN` runners
+(default `kmemleak=on mitigations=off`), `qemu-6-tests.sh` runs only
+`-T zfs_change-key` on both VMs. The whole group rather than the one
+test because kmemleak ignores objects younger than 5 s before a scan,
+so a leak near the end of a short test is reported by a later test.
+`zfs_change-key` loads with the old passphrase after `change-key`
+(line 53), a failed unwrap, so each run should leak 2 x 64 bytes.
+Worktree `~/Development/zfs-kmemleak-revert`. Delete after the result
+is reported.

@@ -1961,3 +1961,11 @@ switch to master. Patch file for the 40-runner setup:
   green, slower VM median 3:59, max 4:58; `removal_with_errors` hung a
   2nd time, new `zvol_stress` hang; all four suffix combinations boot
   with the intended options.
+- **`#19426` opened 2026-10-16 05:25 UTC** -- CI: make kmemleak and no CPU
+  mitigations the Alpine default (`alex-moch:alpine/kmemleak-default`,
+  `fd62344af`, on master 602c474a2). Description quotes the 240-run
+  stats and the combination run. Expected red on its own Alpine job:
+  `failmode_dio_unwritable` (musl EIO string, separate PR planned from
+  `claude/failmode_dio_musl_eio`) and possibly `ctime_001_pos` (fix on
+  `claude/ctime_coarse_clock`, no PR yet). The user will explain the
+  first in a PR comment.

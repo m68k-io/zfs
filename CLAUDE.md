@@ -1969,3 +1969,6 @@ switch to master. Patch file for the 40-runner setup:
   `claude/failmode_dio_musl_eio`) and possibly `ctime_001_pos` (fix on
   `claude/ctime_coarse_clock`, no PR yet). The user will explain the
   first in a PR comment.
+- **Deliberate-leak test done (2026-10-16):** 20/20 jobs red, 40/40 VMs
+  report the reverted `zio_crypt_key_unwrap()` leak, reported by the test
+  after `zfs_change-key`. `claude-notes/CI-RUN-2026-10-16-kmemleak-revert-test.md`.

@@ -1956,3 +1956,8 @@ switch to master. Patch file for the 40-runner setup:
   with scripts/zfs.sh, in-tree zfs-tests.sh -t. Upstream copy FAIL with
   the CI message, fixed version PASS ("write: I/O error"), modules
   unloaded afterwards. Logs ~/Development/logs/dio-eio-*.txt.
+- **240 jobs + combination run evaluated (2026-10-16):** see
+  `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`. 211/240
+  green, slower VM median 3:59, max 4:58; `removal_with_errors` hung a
+  2nd time, new `zvol_stress` hang; all four suffix combinations boot
+  with the intended options.

@@ -2627,6 +2627,19 @@ artifacts in `~/Development/logs/flakes/`, `flake_counts.py`.
   failure in 428, which is what 0.18% predicts. So plain Alpine has
   the same distribution as the rest: a general flaky threshold.
 - Waiting for the 30 kmemleak jobs for the comparison.
+- First 2 of 30 kmemleak jobs (m68k-io 38927213515 alpine3-24-07,
+  alex-moch 38928186683 alpine3-24-02, both EPYC 9V45, 200 passes):
+  - zpool_expand 001/006: 31/200 (15.5%) vs 479/2200 (21.8%) without
+    kmemleak. Same repetition artifact.
+  - large_dnode_008_pos: 1 FAIL (8%). pct_empty 0%:160 1%:19 2%:7 3%:8
+    4%:5 8%:1, so 20% above zero and 7% at 3% or more. The nokmemleak
+    jobs on the same CPU (3 jobs, 300 passes) have 0%:281 1%:13 2%:3
+    3%:2 26%:1, so 6.3% above zero and 1% at 3% or more. The shift is
+    the same on all 4 VMs. kmemleak seems to push the distribution up.
+    Over 5% is still too rare to compare (1/200 vs 1/300).
+  - No kmemleak reports, no watchdog dumps. All other tests 200/200 PASS.
+  - Artifacts are uploaded without a zip wrapper. Fetch them with
+    `gh api .../artifacts/ID/zip > x.tar.bz2`, not `gh run download`.
 
 ## 2026-10-16 evening: local follow-ups (state before a planned reboot)
 

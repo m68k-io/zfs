@@ -2597,3 +2597,33 @@ started 2026-10-13 ~16:05 UTC, result not yet read).
 - **`zpool_expand_001/006_pos`**: both in one job (m68k a2-20), "never
   expanded" / "never grew past". One VM with an autoexpand problem
   (udev/ZED event delivery?), single occurrence.
+
+## Flake hunt, first results: the 22 `-nokmemleak` jobs (2026-10-16 evening)
+
+Runs m68k-io 38927213515, alex-moch 38927951224 and 38928186683, all
+three `b7cc62395`/`4eb239dbc`. First 22 finished jobs are all
+`-nokmemleak`: 2200 passes per test (22 jobs x 2 VMs x 50). Logs and
+artifacts in `~/Development/logs/flakes/`, `flake_counts.py`.
+
+| test | FAIL / 2200 |
+|---|---|
+| zpool_offline_spare | 0 (no hang) |
+| zvol_stress, zvol_stress_destroy | 0 |
+| zpool_import_errata4 | 0 |
+| send_encrypted_freeobjects | 1 |
+| large_dnode_008_pos | 4 |
+| zpool_expand_001/006_pos | 479 each, always together |
+
+- No watchdog dumps, so no hang in any job without kmemleak.
+- `zpool_expand_001/006_pos` is a repetition artifact, not the real
+  rate: never in the first 6 passes of a job, then on and off. The loop
+  devices climb to loop110+ over the passes. 006 says "testpool1 never
+  grew past 251658240" (scsi_debug whole-disk resize event). In a normal
+  run it failed once in ~240 jobs. Not chased further.
+- `large_dnode_008_pos` pct_empty from the full per-VM logs in the
+  artifacts (the log keeps every pass): 0%:1986 1%:134 2%:42 3%:28
+  4%:4 5%:2 6%:1 13%:1 21%:1 26%:1. 9.7% above zero, 0.18% over the
+  limit. Upstream other distros (cluster 17): 11% above zero, no
+  failure in 428, which is what 0.18% predicts. So plain Alpine has
+  the same distribution as the rest: a general flaky threshold.
+- Waiting for the 30 kmemleak jobs for the comparison.

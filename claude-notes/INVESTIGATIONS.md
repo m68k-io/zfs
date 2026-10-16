@@ -2574,3 +2574,26 @@ started 2026-10-13 ~16:05 UTC, result not yet read).
 - Likely mechanism (not verified): `dmu_object_alloc` hands out object
   numbers in per-CPU chunks (`os_obj_next_percpu`), and partially used
   chunks become holes when allocators move between CPUs.
+
+## Cluster 18: the other untracked Alpine flakes, first look (2026-10-16)
+
+- **`zvol_stress` hang is not ours alone.** Upstream (no kmemleak,
+  glibc): almalinux10 (`fix-invalid-bp-free`) and ubuntu26
+  (`pr/fallocate-odirect-race`) show the same pattern as alex a4-22:
+  `zvol_stress`, `zvol_stress_destroy` and `cleanup` each KILLED after
+  10:00 at the end of vm2. Ours finished the test body ("Done with
+  zvol_stress") and hung in cleanup. The FreeBSD `zvol_stress` failures
+  are all `setup` failures on one PR (`feature/changelog`), unrelated.
+- **`zpool_offline_spare` hang is still only ours.** The one upstream
+  FAIL (almalinux8, branch `xattr=sa`) is `zpool replace ... exited 255`,
+  a different failure on what looks like a PR changing defaults.
+- **`send_encrypted_freeobjects`** ("Failed to create object with number
+  128"): `create_object_with_num` touches and removes the file up to 100
+  times until it gets object number 128 back. Object numbers come from
+  per-CPU chunks (`dmu_object.c:52`, `os_obj_next_percpu[CPU_SEQID_
+  UNSTABLE % len]`), so which number a new `touch` gets depends on the
+  CPU it runs on. Same allocator as cluster 17. Hypothesis only; 0
+  upstream failures, 2 ours (both alex a4).
+- **`zpool_expand_001/006_pos`**: both in one job (m68k a2-20), "never
+  expanded" / "never grew past". One VM with an autoexpand problem
+  (udev/ZED event delivery?), single occurrence.

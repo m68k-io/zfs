@@ -1943,3 +1943,13 @@ switch to master. Patch file for the 40-runner setup:
   second boundary, on a file pool): old 10/40 failed with the CI
   message, new 0/40, plus 0/5 with xattr=on. cstyle clean, applies to
   master. Not pushed, no PR yet.
+- **failmode_dio_unwritable fails on every Alpine run** (2026-10-16):
+  new test from 602c474a2 (#19346, patrickdk77, merged 15 Oct) checks
+  `grep -q "Input/output error"` on stride_dd's perror() output. musl
+  says "I/O error" (src/errno/__strerror.h:40), glibc "Input/output
+  error" (errlist.h:34). Seen in alex-moch 38803003863 (rebased
+  kmemleak-default, the only unexpected result, write did return EIO).
+  Fix: branch `claude/failmode_dio_musl_eio` (worktree
+  `~/Development/zfs-dio-eio`), `grep -qE "Input/output error|I/O error"`
+  like 75c6fb77b (procfs_list_stale_read), patch in ~/Development.
+  Not run end to end locally: the installed module predates 602c474a2.

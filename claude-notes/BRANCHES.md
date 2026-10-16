@@ -972,3 +972,15 @@ Runs: m68k-io 38927213515 (`b7cc62395`), plus the user's copies on
 alex-moch 38927951224 (`alpine/nowhere_flakes_x20`) and 38928186683
 (`alpine/nowhere_flake_20x`), both commit 4eb239dbc, tree identical to
 b7cc62395. 60 jobs in total, 30 kmemleak and 30 -nokmemleak.
+
+## `claude/test_runner_kmemleak_log` (2026-10-16, local, patch only)
+
+`aec4314ff` on upstream master 954472f2d (after #19424/#19426 merged).
+`test-runner.py.in` `log()` also writes `self.result.kmemleak` into the
+log file, each line prefixed `kmemleak: `, so the report appears in the
+CI's Test Summary group and job summary (built from `vm*/current/log`
+by qemu-7-prepare.sh). Answer to Brian asking whether the kmemleak file
+is visible in the web UI. Tested by loading test-runner.py.in as a
+module and calling Cmd.log() with and without a fake report. Does not
+change which test a leak is attributed to (5 s minimum age).
+Patch: `~/Development/0001-test-runner-write-the-kmemleak-report-into-the-log.patch`.

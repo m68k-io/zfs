@@ -1972,3 +1972,13 @@ switch to master. Patch file for the 40-runner setup:
 - **Deliberate-leak test done (2026-10-16):** 20/20 jobs red, 40/40 VMs
   report the reverted `zio_crypt_key_unwrap()` leak, reported by the test
   after `zfs_change-key`. `claude-notes/CI-RUN-2026-10-16-kmemleak-revert-test.md`.
+- **End of 2026-10-16, open:** review of `#19424` (EIO string) and
+  `#19426` (kmemleak default), Alpine red on every PR until `#19424`
+  merges. Mail with the revert-test result sent to Brian. Not posted
+  yet: `claude/ctime_coarse_clock` (patch ready). Delete
+  `claude/kmemleak_revert_test_x20` (m68k-io run 38856309105 is linked
+  in that mail) once Brian has seen it. After the merges: clean up the
+  006/009/nomit/combos/x20 branches, worktrees and runs on both forks.
+  Unexplained, only seen with kmemleak so far: `zpool_offline_spare`
+  hang, `zvol_stress` hang, `raidz_expand_001_pos`,
+  `send_encrypted_freeobjects`.

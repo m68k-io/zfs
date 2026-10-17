@@ -2843,3 +2843,10 @@ only updated at txg sync, so it can jump forward and leave holes. DEBUG
 dbgmsg "DEBUG objalloc from= to=" in `~/Development/zfs-master`.
 `dnode-hunt.sh <label> <passes>`: normal pass = 8 lines with from == to.
 300 passes running (dnode-k2.tsv, dnode-k2-jumps.txt).
+- **CI with the fix (2026-10-17):** m68k-io 39004751582 (repeat x20 +
+  fix), first 5 jobs: 50000 offline_spare passes, 0 panics. Alpine
+  nokmemleak 8 VMs 40000 passes (about 29 expected at 0.072%), debian13
+  2 VMs 10000 (about 3 expected). Data `~/Development/logs/dtlfix/`.
+  alex-moch 39011696121 = verify_x40 patch (head e75e4e76b), 40 jobs
+  running. Full CI 39004751720 still partly queued.
+- large_dnode local: 246 passes, pct up to 4%, still 0 allocator jumps.

@@ -2046,6 +2046,22 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   Evaluation: `~/Development/logs/overnight-eval/fetch.sh <dir> <repo>
   <run> <tag>...` then `python3 -I evaluate.py <dir>` (parser fixed:
   a test's notes follow its result line; stats checked against scipy).
+- **Overnight patches now time-budgeted (2026-10-17 evening):** a fixed
+  iteration count failed in the 5 h run: kmemleak jobs need 3-12 s per
+  offline_spare pass depending on host and run time (#132: +40-55% over
+  5000 passes), so they run into the 300 min step limit and lose
+  debug-counters.txt. Both overnight patches (`claude/overnight_1017`
+  2908c172f, `claude/overnight_1017_m68k` 6cd6e2dd4, files in
+  ~/Development, git am checked) now run verify.run with -I 100000 until
+  DEBUG_DEADLINE = start + 250 min. The watchdog stops test-runner there
+  (writes deadline-reached.txt, RV forced to 0) and writes the counters
+  every minute. Tested locally with a fake test-runner. Note: `pkill -f
+  '/test-runner\.py'` also matches any shell whose command line contains
+  that path. Commit messages are kept in
+  `~/Development/offspare-local/msgs/` (the scratchpad does not survive a
+  reboot). Open question from the user: why kmemleak slows down over a
+  run (hypotheses: growing tracked objects, kmemleak bookkeeping),
+  not measured yet.
 - **5 h offline_spare run (started 2026-10-17 15:05 local, user's go):**
   branch `claude/offspare_5h` (alex-moch run **39035105849**, user
   pushed patch `~/Development/offspare-5h-40-on-upstream-master.patch`,

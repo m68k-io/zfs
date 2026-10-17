@@ -2139,6 +2139,12 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   on almalinux10 (EPYC 9V74): kworker in disk_events_workfn ->
   ata_scsi_queuecmd (CD-ROM poll, emulated AHCI), no ZFS frames, job
   green. Classified as host stall.
+- **Upstream state checked 2026-10-17 evening:** `#19424` (musl EIO
+  string) merged 2026-10-16 16:32 UTC, `#19426` (kmemleak + no
+  mitigations as the Alpine default) merged 16:45 UTC. The "End of
+  2026-10-16, open" review items are done. Branch cleanup after the
+  merges is still open. `#19332` (removal_with_errors hang fix, not
+  ours) is still open.
 - **Big overnight run started (2026-10-17 ~20:45):** alex-moch
   **39057246579** (branch alpine/overnight, cd1148620, tree identical to
   claude/overnight_1017 ac4f273b0, 80 jobs in two waves of 40) and

@@ -2139,6 +2139,13 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   on almalinux10 (EPYC 9V74): kworker in disk_events_workfn ->
   ata_scsi_queuecmd (CD-ROM poll, emulated AHCI), no ZFS frames, job
   green. Classified as host stall.
+- **Big overnight run started (2026-10-17 ~20:45):** alex-moch
+  **39057246579** (branch alpine/overnight, cd1148620, tree identical to
+  claude/overnight_1017 ac4f273b0, 80 jobs in two waves of 40) and
+  m68k-io **39057297225** (claude/overnight_1017_m68k 8ec2a8afd, 40
+  jobs, pushed on the user's go). Next: fetch each with fetch.sh right
+  after it ends, evaluate with evaluate.py, compare kml vs dropcaches
+  within one CPU type only (sanity run showed the CPU mix confounds it).
 - **Overnight patches now time-budgeted (2026-10-17 evening):** a fixed
   iteration count failed in the 5 h run: kmemleak jobs need 3-12 s per
   offline_spare pass depending on host and run time (#132: +40-55% over

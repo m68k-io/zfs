@@ -946,6 +946,16 @@ so a leak near the end of a short test is reported by a later test.
 Worktree `~/Development/zfs-kmemleak-revert`. Delete after the result
 is reported.
 
+## `claude/verify_x40` (2026-10-17, DEBUG, for alex-moch, pushed by the user)
+
+On upstream master 073e32604: dtl fix, send_encrypted_freeobjects
+tries=256, DEBUG commit (verify.run = offline_spare + large_dnode_008_pos
++ send_encrypted_freeobjects, -I 250, 18 Alpine kmemleak + 14 nokmemleak
++ 8 distros, allocator hole counters zfs_debug_objalloc_* logged by
+large_dnode_008_pos as "DEBUG dnstats", resilver_txg dbgmsg, panic
+watchdog). Patch `~/Development/verify-x40-on-upstream-master.patch`
+(3 commits, git am checked). Worktree `~/Development/zfs-verify40`.
+
 ## `claude/dtl_required_race` and `claude/dtl_required_race_x20` (2026-10-17, m68k-io)
 
 Fix e1e3d0009 "Serialize vdev_dtl_required() with vdev_dtl_reassess()"

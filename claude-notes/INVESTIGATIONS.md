@@ -2807,3 +2807,12 @@ bits 15-20 are all used. Options for maintainers, not decided.
 - Regression run on the fixed module: 132 PASS, 3 FAIL + 1 SKIP all in
   the expected list (auto_replace_001/002, auto_spare_multiple,
   removal_with_zdb), 0 unexpected, 33 min, no hang.
+- **zvol_stress local proof (2026-10-17):** `~/Development/offspare-local/
+  zvol-repro.sh` (zinject part of zvol_stress in a loop on a 3-file
+  stripe, instrumented zio.c in `~/Development/zfs-master` counts instead
+  of panicking). No delay: 14 of 38009 retried throttled writes done with
+  injection already disabled in 200 rounds (2 min). 50 ms delay: 3 of 955
+  in 20 rounds. The script uses `sync`, the test `sync_pool`. Issue draft
+  with three fix options: `zvol-stress-issue-draft.md`. Not posted.
+  zfs_recover does not help: ASSERT is VERIFY in debug builds and calls
+  spl_panic() directly.

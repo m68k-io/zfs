@@ -2046,6 +2046,17 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   Evaluation: `~/Development/logs/overnight-eval/fetch.sh <dir> <repo>
   <run> <tag>...` then `python3 -I evaluate.py <dir>` (parser fixed:
   a test's notes follow its result line; stats checked against scipy).
+- **5 h offline_spare run (started 2026-10-17 15:05 local, user's go):**
+  branch `claude/offspare_5h` (alex-moch run **39035105849**, user
+  pushed patch `~/Development/offspare-5h-40-on-upstream-master.patch`,
+  tree identical) and `claude/offspare_5h_m68k` (m68k-io run
+  **39035021030**, pushed by me on the user's explicit request). Same 4
+  fixes; DEBUG: regress groups once, then verify.run = only
+  zpool_offline_spare, ITER 3000 (kml) / 5000; alex-moch 20 kml + 12
+  nokml + 8 distros, m68k-io 12 kml + 8 nokml. Goal: ~430k passes, 0
+  panics expected, reset_outage > 0 would prove path 2 occurs and is
+  handled. Evaluate ~20:00 local with fetch.sh/evaluate.py, then the
+  user decides on the big overnight run (80 + 40 patches ready).
 - **zloop:** 1 crash in the first 30 min with the overnight tree:
   "obsolete indirect mapping count mismatch ... leaked 4096", a known
   upstream class (same message in 2 upstream zloop failures, 7 of 25

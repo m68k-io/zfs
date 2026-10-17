@@ -94,3 +94,31 @@ errata4` (leak), `autotrim_config`, `scrub_cancel` KILLED,
 
 raidz_expand_001_pos 6 (4 on 9V74), ctime 3 (all 7763), large_dnode 3,
 send_encrypted_freeobjects 2, zpool_import_parallel_pos 2, others 1 each.
+
+## 289 jobs without timeouts and infra failures (the user's definition)
+
+"Real timeout" = the run is too slow for the limit. Hangs, panics and
+overloaded hosts do not count: 0 real timeouts in 300 jobs. Removing the
+8 timeouts and 3 infra failures leaves 289 jobs (`per_cpu.py --clean`,
+`per-cpu-300-clean.txt`). Run tests and slower VM ZTS track each other
+closely, so one of them is enough.
+
+| CPU | Jobs | Share | Green | Unexp. | Run tests (min) | Slower VM ZTS | zfs_get_009_pos |
+|---|---|---|---|---|---|---|---|
+| EPYC 9V45 | 50 | 17.3% | 47 (94.0%) | 3 (6.0%) | 168 / 177 / 244 | 2:48:54 / 2:57:45 / 3:05:45 | 3:24 / 3:58 / 4:46 |
+| EPYC 9V74 | 69 | 23.9% | 61 (88.4%) | 8 (11.6%) | 190 / 207 / 255 | 3:10:50 / 3:27:17 / 4:15:20 | 4:30 / 5:21 / 8:44 |
+| Xeon 6973P-C | 6 | 2.1% | 6 (100%) | 0 (0.0%) | 209 / 230 / 255 | 3:29:44 / 3:50:43 / 4:15:41 | 3:57 / 4:21 / 6:04 |
+| EPYC 7763 | 132 | 45.7% | 123 (93.2%) | 9 (6.8%) | 223 / 243 / 263 | 3:43:51 / 4:03:19 / 4:23:35 | 5:57 / 7:15 / 8:41 |
+| Xeon 8573C | 24 | 8.3% | 21 (87.5%) | 3 (12.5%) | 215 / 255 / 291 | 3:34:59 / 4:15:57 / 4:51:47 | 4:44 / 5:57 / 7:05 |
+| Xeon 8370C | 8 | 2.8% | 8 (100%) | 0 (0.0%) | 271 / 274 / 298 | 4:31:00 / 4:34:56 / 4:58:32 | 6:07 / 6:57 / 7:25 |
+| Total / Average | 289 | 100% | 266 (92.0%) | 23 (8.0%) | 206 / 225 / 261 | 3:26:44 / 3:45:02 / 4:11:18 | 5:01 / 6:03 / 7:48 |
+
+Cells min / median / max, bottom row = job-weighted average of the
+per-CPU values. Share over all 300 jobs (both accounts the same mix):
+7763 44.3%, 9V74 24.0%, 9V45 17.3%, 8573C 8.7%, 8370C 2.7%, 6973P-C 2.0%,
+unknown 1.0%. AMD about 86%.
+
+Run tests percentiles (min): All p10 178, p25 203, p50 239, p75 245,
+p90 255, p95 266, p99 283, max 298. 9V45 p10-p95 173-185, 7763 236-255,
+8573C p75 268, 8370C 271+ throughout. Without 8370C/8573C p99 would be
+about 260.

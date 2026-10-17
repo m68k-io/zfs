@@ -1982,3 +1982,67 @@ switch to master. Patch file for the 40-runner setup:
   Unexplained, only seen with kmemleak so far: `zpool_offline_spare`
   hang, `zvol_stress` hang, `raidz_expand_001_pos`,
   `send_encrypted_freeobjects`.
+
+## Update (2026-10-17): root causes for all four "Alpine flakes", fixes in testing
+
+Details in `claude-notes/INVESTIGATIONS.md` cluster 19 and the
+large_dnode / send_encrypted sections after it, branches in
+`claude-notes/BRANCHES.md`, statistics in
+`claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
+
+- **Conclusion agreed with the user:** the Alpine runner is solid. Only
+  `ctime_001_pos` was a real musl compatibility problem (the DIO EIO
+  message came after the runner was already green). Everything else is
+  pre-existing upstream races and test bugs that kmemleak (slow, wider
+  race windows) exposes, and they reproduce on other distros too.
+  Comment for the alpine-default PR (user posts it): a word of caution
+  not to attribute failures of this job to Alpine, no specifics.
+- **zpool_offline_spare** (VERIFY resilver_txg in vdev_dtl_should_excise):
+  race between vdev_dtl_required() (temporary vdev_cant_read under
+  SCL_STATE_ALL writer) and the sync-context DTL reassess at resilver
+  end. Fix `spa_dtl_reassess_lock`, committed as the user on
+  `claude/dtl_required_race` (e1e3d0009 on 5d7c42cfd; rebased copy
+  9f6fb4cd6 on 073e32604 inside the x40 patch). Local: 3/100 stale
+  without, 0/300 with, regression groups clean. CI m68k-io 39004751582
+  (repeat + fix): first 5 jobs 50000 passes 0 panics. Full CI
+  39004751720 was still queued. Not posted.
+- **send_encrypted_freeobjects:** test bug, per-CPU 128-dnode chunks,
+  tries=100 too few when all touches run on one CPU. Fix tries=256,
+  pinned real test 4/4 FAIL -> 5/5 PASS. Commit 4a8843773 (in the x40
+  patch), branch `claude/send_encrypted_freeobjects_tries`. Not posted.
+- **large_dnode_008_pos:** race in dmu_object_alloc_impl(): concurrent
+  refills of the same per-CPU slot overwrite a chunk in use. Holes =
+  lost chunk slots (correlation 1.000). Fix 2 (per-slot chunk end,
+  `os_obj_next_percpu_end[]`): 100 passes 0 holes (before 15/100, max
+  6837), ztest 10 min clean. Branch `claude/objalloc_chunk_race` on
+  073e32604, worktree `~/Development/zfs-objfix`, NOT committed yet.
+  Fix 1 (take over any changed slot value) was rejected: cascade with
+  34201 holes in 1/100.
+- **zvol_stress** (VERIFY zio_injection_enabled in zio_dva_throttle_done):
+  reproduced locally (14 of 38009 retried writes after zinject -c, no
+  delay). Issue draft `~/Development/offspare-local/zvol-stress-issue-draft.md`
+  with three fix options, not posted. zfs_recover does not help (ASSERT
+  is VERIFY in debug builds).
+- **ctime_001_pos:** patch ready, not posted.
+- **CI runs:** alex-moch 39011696121 = user-pushed
+  `~/Development/verify-x40-on-upstream-master.patch` (dtl fix +
+  send_encrypted fix + DEBUG verify.run with allocator counters, 40
+  runners, head e75e4e76b), running. Not yet evaluated.
+- **Statistics (300 kmemleak jobs, 5 attempts):** 0 real timeouts. The
+  8 timeouts are 3 panics, 2 removal_with_errors hangs (#19332), 3 host
+  problems. Without them 289 jobs, 92.0% green. Per-CPU table with
+  min/median/max and percentiles in the CI-RUN note. The PR #19382
+  numbers were higher because both VMs ran zfs_get_009_pos at the same
+  second in those isolated runs.
+- **Local VM state:** 2 vCPUs, `kmemleak=on mitigations=off` in GRUB
+  (backups `/etc/default/grub.bak-20261016`,
+  `/boot/grub/grub.cfg.bak-20261016`). Loaded zfs module is the
+  experimental `~/Development/zfs-master` build (5d7c42cfd + dtl fix +
+  DEBUG counters in vdev.c/zio.c/dmu_object.c + large_dnode fix 2 +
+  instrumented large_dnode test). Unload before using another build.
+  `~/Development/zfs-dio-eio` libtest change reverted (saved as
+  `~/Development/large-dnode-local/zedkeep-libtest.diff`).
+- **Open decisions for the user:** post offline_spare fix after CI;
+  commit/post send_encrypted, ctime and large_dnode fixes; file the
+  zvol_stress issue; test-runner kmemleak-log patch; idea to disable
+  kmemleak on Xeon 8370C/8573C (11% of jobs) if runtimes creep up.

@@ -2898,3 +2898,29 @@ dbgmsg "DEBUG objalloc from= to=" in `~/Development/zfs-master`.
   panics, 2 removal_with_errors hangs, 3 host problems). Without them
   289 jobs, 92.0% green. Idea from the user: disable kmemleak on the two
   slow Intel CPUs (8370C, 8573C, 11% of jobs) if runtimes creep up.
+- **ztest against fix 2** (libzpool from `~/Development/zfs-master`, 10
+  min, 2 vCPU): rc 0, "13 killed, 1 completed" (ztest kills its children
+  on purpose), 18 zdb verifications clean. Output
+  `~/Development/offspare-local/ztest-fix2.txt`.
+- Local experiment files, all in `~/Development/offspare-local/`:
+  `repro.sh` (offline_spare with delay param), `zvol-repro.sh`,
+  `objnum.sh` (object numbers per CPU mode), `dnode-hunt.sh` /
+  `dnode-hunt2.sh` (large_dnode loop, jumps / counters),
+  `objalloc_fix2.py` (applies the large_dnode fix to a tree), results
+  `dnode-{k2,c1,fix1,fix2}.tsv`, `nofix-d200.txt`, `fix-d200.txt`,
+  `zvol-d*.txt`, `objnum-*.tsv`, `sefo-*-pinned.txt`, diffs
+  `dtl-reassess-lock.diff`, `send-encrypted-freeobjects-tries.diff`,
+  `objalloc-fix2-with-counters.diff`, `dmu_object.c.counters`.
+
+### zfs_get_009_pos: why the #19382 numbers were higher (2026-10-17)
+
+PR #19382 measured mitigations=off medians 7763 8:20, 9V74 6:08, 8573C
+6:24, 8370C 7:16, 6973P-C 4:30 (alex-moch 38444757601, runfile with only
+this test). The 300 full-suite jobs give 7:15, 5:21, 5:57, 6:57, 4:21
+(-3 to -13%, most on AMD). In all 20 mitigations=off jobs of the PR run
+both VMs started zfs_get_009_pos within 0-1 s of each other (computed
+from end time minus duration, logs in `~/Development/logs/pr19382-iso/`),
+so two identical heavy kmemleak tests shared one host. In the full
+suite it runs on vm1 only while vm2 runs other tests. Strong hint, not
+proof: the newer code base (e.g. the zinject hot-path change of
+2026-10-13) is not ruled out.

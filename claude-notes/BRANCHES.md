@@ -946,6 +946,31 @@ so a leak near the end of a short test is reported by a later test.
 Worktree `~/Development/zfs-kmemleak-revert`. Delete after the result
 is reported.
 
+## `claude/objalloc_chunk_race` (2026-10-17, fix, uncommitted)
+
+large_dnode_008_pos fix 2 (per-slot chunk end `os_obj_next_percpu_end[]`)
+on upstream master 073e32604, worktree `~/Development/zfs-objfix`.
+Applied by `~/Development/offspare-local/objalloc_fix2.py`. 3 files
++34/-4, cstyle ok. Not committed, not pushed. Next: commit as the user,
+CI repeat check.
+
+## `claude/send_encrypted_freeobjects_tries` (2026-10-17, fix, uncommitted)
+
+tries=256 in send_encrypted_freeobjects.ksh on 5d7c42cfd, worktree
+`~/Development/zfs-objnum`, uncommitted. The same change is committed
+as 4a8843773 in `claude/verify_x40` (on 073e32604).
+
+## Local experiment trees (2026-10-17)
+
+- `~/Development/zfs-master` (branch `claude/local_master_20261016`,
+  5d7c42cfd + uncommitted DEBUG and fixes, loaded module). Experimental
+  only.
+- `~/Development/zfs-dtlfix-x20` = `claude/dtl_required_race_x20`
+  (pushed to m68k-io). `~/Development/zfs-dtlfix` =
+  `claude/dtl_required_race` (pushed).
+- alex-moch run 39011696121 is the user's push of the x40 patch
+  (branch `alpine/verify-x40-on-upstream-master`).
+
 ## `claude/verify_x40` (2026-10-17, DEBUG, for alex-moch, pushed by the user)
 
 On upstream master 073e32604: dtl fix, send_encrypted_freeobjects

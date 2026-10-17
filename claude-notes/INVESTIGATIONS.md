@@ -2924,3 +2924,41 @@ so two identical heavy kmemleak tests shared one host. In the full
 suite it runs on vm1 only while vm2 runs other tests. Strong hint, not
 proof: the newer code base (e.g. the zinject hot-path change of
 2026-10-13) is not ruled out.
+
+### Evaluation of the verify runs (2026-10-17 afternoon)
+
+alex-moch 39011696121 (x40, dtl fix + send_encrypted tries=256 +
+allocator counters, no large_dnode fix), cancelled by the user after 39
+jobs had finished (alpine3-24-07 vm1 hung). Data
+`~/Development/logs/verify40/`. m68k-io 39004751582 (x20 repeat + dtl
+fix), partial, data `~/Development/logs/dtlfix/`.
+
+- **offline_spare with the fix:** m68k-io 0 panics in 128486 passes (off
+  kml 47519, about 140 expected at the old rate). alex-moch 1 panic in
+  about 20000 (Alpine kml). Together 1 in about 148000.
+  **The remaining panic is a second path:** at the first scan done
+  (txg 13) the spare already has `offline=1` (a real `zpool offline`,
+  not the dtl_required dry run), DTL emptied, resilver_txg not reset
+  because DTL_OUTAGE is not empty. Same SCL_STATE_ALL vs SCL_CONFIG
+  reader gap. Dump `verify40/x-...-alpine3-24-07/.../vm1/watchdog-panic.txt`.
+  The reset condition (MISSING and OUTAGE empty) is from 5d1f7fb64
+  (Illumos 3958, 2013) without a stated reason for OUTAGE. Resetting
+  on MISSING empty alone would cover both paths. Question for
+  maintainers.
+- **send_encrypted_freeobjects with tries=256: NOT fixed.** 9 FAIL in
+  about 20000 (4x "number 128", 5x "number 129", 5 of them on
+  almalinux10 vm2). CI VMs have 2 vCPUs. 129 can only come from the CPU
+  that owns the 128 chunk, so more tries do not help when the touches
+  stay on the other CPU, and 128 is unreachable if another CPU claimed
+  that chunk first. A real fix must control the CPU (or not depend on
+  exact numbers).
+- **large_dnode in CI (19997 samples): two mechanisms.** (1) overwritten
+  chunks: of 4286 passes with > 1000 holes, 4127 are >= 90% explained by
+  chunk_lost_slots. (2) cascade: all 33 failures (> 5%, 40000-73000
+  holes) have dnode_hold_free_misses 6410 median (max 20665, vs 1 for
+  the rest) and about 200 extra chunk refills, with few lost chunk
+  slots. That is the fix-1 signature, here in the ORIGINAL code.
+  Likely an allocation past the slot's chunk end (concurrent
+  atomic_add at the end), then slots walk through occupied regions.
+  Fix 2 does not address it (keeps the original repair), and 100 local
+  passes are too few at 0.17%. The test failures come from (2).

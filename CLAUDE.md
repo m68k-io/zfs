@@ -2065,17 +2065,29 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   `~/Development/offspare-local/zloop-ab/blocks.tsv`, stop with
   `touch ~/Development/offspare-local/zloop-ab.stop`.
 - **Evaluated runs:** alex-moch 39011696121 (verify x40, cancelled after
-  39 jobs, data `~/Development/logs/verify40/`), m68k-io 39004751582
-  (repeat x20 + dtl fix, data `~/Development/logs/dtlfix/`). m68k-io
-  39004751720 (normal full CI with dtl fix) still to check.
-- **Local VM state:** 2 vCPUs, `kmemleak=on mitigations=off`.
-  Loaded module = `~/Development/zfs-overnight` (the overnight patch).
-  `~/Development/zfs-master` holds the experimental build with all repro
-  tunables (objalloc delay, path-2 delays D1/D2/D3, missing_only,
-  counters). Backups of its files before each step in offspare-local
-  (`dmu_object.c.fix3-debug`, `vdev.c.before-path2`,
-  `dsl_scan.c.before-d3`). Stay at 2 vCPUs (my advice when the user
-  offered 24 again: CI has 2, the delays make races reproducible).
+  39 jobs, `~/Development/logs/verify40/`). m68k-io 39004751582 (#132,
+  repeat x20 + dtl fix, complete, `~/Development/logs/dtlfix/`,
+  `python3 -I analyze.py .`): **0 panics in 136,222 offline_spare
+  passes** (Alpine kml 55,011, nokml 40,000, 4 distros 40,000, expspare
+  1,211). Its 9 failed jobs: alpine3-24-01/02/06 too slow for 5000
+  iterations (PASS until the 300 min step limit, no hang), 6 expspare
+  jobs = known zpool_expand hang, ubuntu26 vm2 one zpool_offline/setup
+  FAIL (`zfs set mountpoint` could not unmount the new testfs, host).
+  m68k-io 39004751720 (normal full CI with the dtl fix, artifacts in
+  `~/Development/logs/dtlfix-fullci/`): ubuntu24 zfs_allow_003_pos
+  (passes, FAIL after cleanup, new, unrelated), fedora43
+  mmp_active_import and almalinux8 zfs_destroy_dev_removal_condense
+  (both known upstream flakes); almalinux9 and alpine3-24 were still
+  running at 15:00 local, to check.
+- **Local VM state:** shut down 2026-10-17 ~15:15 local, comes back with
+  24 vCPUs (`kmemleak=on mitigations=off` stay). Loaded module was
+  `~/Development/zfs-overnight`, nothing loads automatically.
+  `~/Development/zfs-master` = experimental build with all repro
+  tunables (objalloc delay, path-2 delays D1/D2/D3, missing_only).
+  `~/Development/zfs-baseline` = plain 073e32604, userspace only (for
+  zloop). After the restart: `rm ~/Development/offspare-local/zloop-ab.stop`
+  and restart `~/Development/offspare-local/zloop-ab.sh 16` in the
+  background (no block had finished before the shutdown).
 - **Open decisions for the user:** post offline_spare fix; commit/post
   send_encrypted, ctime, large_dnode fixes; file the zvol_stress issue;
   test-runner kmemleak-log patch; kmemleak off on Xeon 8370C/8573C if

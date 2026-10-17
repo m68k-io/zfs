@@ -2154,6 +2154,16 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   jobs, pushed on the user's go). Next: fetch each with fetch.sh right
   after it ends, evaluate with evaluate.py, compare kml vs dropcaches
   within one CPU type only (sanity run showed the CPU mix confounds it).
+  Expectations written down before the results (2026-10-17 night):
+  m68k-io done after ~4.5-5 h, alex-moch (two waves of 40) ~9-9.5 h.
+  ~180k passes per test (kml ~80k, nokml ~88k, distros ~11k).
+  offline_spare 0 panics (pre-fix rate would give ~25-180),
+  reset_outage ~5-15. send_encrypted 0. large_dnode check on 0 and
+  pct_empty 0, -nocheck open (a FAIL proves fix 3 in CI, green proves
+  nothing). Regress: only auto_replace_001/002, auto_spare_multiple,
+  maybe 1 scrub_cancel KILLED. -dropcaches: same body, scan 10-30%
+  lower by hour 3 within one CPU, but verify.run leaves far fewer
+  dentries than the full suite. 1-3 infra failures plausible.
 - **Overnight patches now time-budgeted (2026-10-17 evening):** a fixed
   iteration count failed in the 5 h run: kmemleak jobs need 3-12 s per
   offline_spare pass depending on host and run time (#132: +40-55% over

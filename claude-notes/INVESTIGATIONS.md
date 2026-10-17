@@ -2791,3 +2791,16 @@ per-zio "injected" flag would be the better fix. A non-inherited flag is
 not enough: on a mirror an injected leaf error can make the logical zio
 retry and its vdev children inherit only IO_RETRY, and the vdev-inherit
 bits 15-20 are all used. Options for maintainers, not decided.
+- **Local proof (2026-10-17, 24 vCPU, kmemleak=on mitigations=off):**
+  200 ms delay in the cant_read window. Without fix: stale resilver_txg
+  3 in 100 passes, cant_read seen by sync reassess 3. With fix
+  (spa_dtl_reassess_lock): 0 and 0 in 300 passes (Poisson P ~ 1e-4).
+  Results `~/Development/offspare-local/{nofix,fix}-d200.txt`. Patch
+  `~/Development/offspare-local/dtl-reassess-lock.diff`, draft message
+  `dtl-reassess-lock-commit-msg.txt`. Not committed or pushed.
+  Regression run (fault, online_offline, removal, replacement,
+  scrub_mirror, zpool_attach/detach/offline/online/replace/resilver/
+  scrub) on the fixed module: `fix-regression.txt`.
+- expspare VMs with watchdog dumps but no panic: all stall in the
+  zpool_expand group right after setup, some with udevd in D state.
+  The known zpool_expand repetition issue, not chased.

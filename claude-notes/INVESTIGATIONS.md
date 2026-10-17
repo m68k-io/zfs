@@ -2885,3 +2885,16 @@ dbgmsg "DEBUG objalloc from= to=" in `~/Development/zfs-master`.
   same family as our ctime fix (second boundary) but a different test
   and cause. Upstream crtime_001_pos failures: 2, both ubuntu24. Not
   Alpine. User: no need to dig further.
+- **Refill fix 2 (per-slot chunk end), 100 passes (dnode-fix2.tsv):**
+  0 fails, 0 passes with pct_empty > 0, largest gap 127 (one partly used
+  chunk at the end), chunk_lost 0, dnode_hold_free_misses max 1. Before:
+  15/100 with holes, max 6837. New `os_obj_next_percpu_end[]` (written
+  under os_obj_lock at refill), and under the lock the slot value is
+  taken over only if it lies in the slot's last chunk. Clean branch
+  `claude/objalloc_chunk_race` on upstream 073e32604, worktree
+  `~/Development/zfs-objfix`, uncommitted, cstyle ok. Script
+  `~/Development/offspare-local/objalloc_fix2.py`. ztest 10 min running.
+- 300-job kmemleak statistics: 0 real timeouts (the 8 timeouts are 3
+  panics, 2 removal_with_errors hangs, 3 host problems). Without them
+  289 jobs, 92.0% green. Idea from the user: disable kmemleak on the two
+  slow Intel CPUs (8370C, 8573C, 11% of jobs) if runtimes creep up.

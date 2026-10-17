@@ -2850,3 +2850,24 @@ dbgmsg "DEBUG objalloc from= to=" in `~/Development/zfs-master`.
   alex-moch 39011696121 = verify_x40 patch (head e75e4e76b), 40 jobs
   running. Full CI 39004751720 still partly queued.
 - large_dnode local: 246 passes, pct up to 4%, still 0 allocator jumps.
+
+### large_dnode_008_pos root cause (2026-10-17, local, 2 vCPU, kmemleak)
+
+- 300 passes with "DEBUG objalloc" logging: holes up to 4%, 0 L1-search
+  jumps. Jump hypothesis ruled out. xattrtest -k deletes nothing.
+- 100 passes with counters (dnode-c1.tsv, `dnode-hunt2.sh`): empty slots
+  = slots left in overwritten per-CPU chunks, e.g. 6837 holes vs 6828
+  lost (55 chunks), 6263 vs 6168, 3397 vs 3276. Correlation 1.000.
+  skip_slots after failed holds constant 34, irrelevant.
+- Cause: in dmu_object_alloc_impl() two threads on the same per-CPU slot
+  both see the chunk used up, both take os_obj_lock one after the other,
+  and the second atomic_swap_64(cpuobj, ...) replaces the first's new
+  chunk, which others already allocate from. 20-55 times per pass with
+  100 xattrtest processes on 2 CPUs.
+- Candidate fix: re-read *cpuobj under os_obj_lock; if it changed since
+  we looked, allocate from it (refilled flag skips the refill check once,
+  as the original code does right after its own refill). A fresh chunk
+  and a used-up one both sit on a 128 boundary, so the check is "changed",
+  not "full". Diff with counters:
+  `~/Development/offspare-local/objalloc-refill-fix-with-counters.diff`.
+  100 passes running (dnode-fix1.tsv).

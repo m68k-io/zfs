@@ -2107,6 +2107,24 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   **39050298833** (8 jobs, pushed on the user's go). If drop_caches
   helps, candidate upstream test-runner patch: drop per test group under
   -m. Local A/B zloop dropped (VM not up overnight).
+- **Sanity runs evaluated (2026-10-17, ~20:05):** 24/24 jobs green,
+  local copies `~/Development/logs/sanity-full/`. 0 failures in ~19,000
+  passes of the three tests, no panics, no kmemleak reports, chunk_lost
+  0, deadline-reached.txt + debug-counters.txt + kmemleak-samples.txt on
+  every VM. summary.txt is empty (the deadline stops test-runner before
+  it writes one), evaluate.py reads current/log and is not affected.
+  "no regress summary" is expected here (sanity has no regress groups).
+  The distro jobs do not use -m, so the hook did not run there, but
+  test-runner works there. CPU mix confounds the arms: kml had 4/10 jobs
+  on EPYC 9V45/9V74, dropcaches 1/10. EPYC 7763 only
+  (`~/Development/logs/sanity-7763/`): offline_spare body 1.47 s (kml)
+  vs 1.46 s (dropcaches), 93 vs 94 passes per VM, so drop_caches does
+  not change the per-allocation slowdown. Scan gap 0.56 -> 0.69 s (kml)
+  vs 0.51 -> 0.61 s (dropcaches) from minute 0 to 50, a small effect
+  as expected in 1 h with 3 tests. The watchdog's 10-min scans (10-25 s,
+  0.35-1.4 M objects) run during a test and are not comparable to the
+  per-test gap. 10-min-bin script: `~/Development/logs/scan-drift/scan_drift10arm.py`
+  (copy of scan_drift.py, bins of 600 s, grouped by arm).
 - **Overnight patches now time-budgeted (2026-10-17 evening):** a fixed
   iteration count failed in the 5 h run: kmemleak jobs need 3-12 s per
   offline_spare pass depending on host and run time (#132: +40-55% over

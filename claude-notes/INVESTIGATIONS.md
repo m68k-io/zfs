@@ -2986,3 +2986,48 @@ fix), partial, data `~/Development/logs/dtlfix/`.
   `offline=1 state=7` at the first excise. Holding
   spa_dtl_reassess_lock across vdev_reopen() would cover it but holds a
   mutex across I/O; the "MISSING only" reset is the simpler candidate.
+
+## 2026-10-17 afternoon: fix 3 confirmed, path 2 reproduced and fixed
+
+- **large_dnode fix 3, local proof.** Without help, 2 vCPUs never
+  produce a stray (51 passes, check off, stray=0, no holes). DEBUG
+  tunable `zfs_debug_objalloc_delay` (zfs-master only) sleeps N ticks
+  before the atomic_add when the slot has at most 2*dn_slots numbers
+  left. delay=1, check off: 2/2 FAIL, pct_empty 79, free_misses ~290k,
+  strays ~15k per pass (the CI cascade). delay=1, check on: 30/30 PASS,
+  pct_empty 0, free_misses 1, 8013 strays rejected. With fix 3 the old
+  chunk_lost counter counted rejected strays as lost; the overnight
+  DEBUG version only counts numbers below the replaced chunk's end.
+  The dmu_object_next() skip path that swaps cpuobj past the chunk end
+  is also caught by fix 3 (the next reservation is past the end).
+- **offline_spare path 2.** CI dump (verify40, alpine3-24-07):
+  `txg 13 scan done`, then `DEBUG excise file-vdev-3 resilver_txg=8
+  dtl=[3,11] scn=[3,11] offline=1 state=7`, no reset line, then
+  `zpool offline`, then the second resilver with scn=[12,15] trips the
+  VERIFY. Order: offline passes vdev_dtl_required() and sets
+  vdev_offline, sync-context reassess excises DTL_MISSING while the vdev
+  is still open (state 7), the reopen lands before the readable check,
+  DTL_OUTAGE becomes everything, reset skipped.
+  Dead ends on the way: a delay only between flag and reopen, or only in
+  the reassess, never hits it locally (the resilver of the test's tiny
+  pool finishes inside zpool replace). Offline during a paused resilver
+  (zfs_scan_suspend_progress) is harmless: should_excise() refuses
+  below DEGRADED, DTL_MISSING stays, no reset is due. The path-1 lock
+  makes dtl_required() wait for a running reassess, so the offline has
+  to get past it before the reassess starts.
+  Repro (`p2d3.sh`): D3 zfs_scan_debug_done_delay_ms=3000 in
+  dsl_scan_done() before vdev_dtl_reassess(), D1
+  zfs_vdev_debug_offline_delay_ms=4000 between flag and reopen, D2
+  zfs_vdev_debug_reassess_delay_ms=3000 after the excise. Offline is
+  issued when dbgmsg shows "DEBUG scan done delay start". Current code
+  5/5 (plus 2/2 earlier) stale resilver_txg (51 < 55), missing_only=1
+  0/5. The offline itself waits in spa_vdev_state_exit() ->
+  txg_wait_synced() after flag+reopen, which is why it can overlap.
+- **send_encrypted v2:** pinned run 4/4 PASS (v1 4/4 FAIL).
+- **Overnight patch checks:** reuse-ci.py only acts on pull_request
+  events. ZTS_OS_OVERRIDE not set on m68k-io (alex-moch unreadable, but
+  the x40 run there used our matrix). The ZTS `log` file has no Results
+  Summary, so the regression run's console goes to
+  regress-console.txt via tee (set -eu without pipefail, exit code from
+  PIPESTATUS). Regression groups on one VM with kmemleak ~66 min
+  (sum of split-run per-test times x2), fault alone ~36 min.

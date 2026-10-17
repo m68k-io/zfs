@@ -1042,3 +1042,21 @@ is visible in the web UI. Tested by loading test-runner.py.in as a
 module and calling Cmd.log() with and without a fake report. Does not
 change which test a leak is attributed to (5 s minimum age).
 Patch: `~/Development/0001-test-runner-write-the-kmemleak-report-into-the-log.patch`.
+
+## `claude/overnight_1017` and `claude/overnight_1017_smoke` (2026-10-17)
+
+On upstream master 073e32604. Worktrees `~/Development/zfs-overnight`
+(80 jobs) and `~/Development/zfs-smoke` (16 jobs, ITER=40). Commits,
+all authored and committed as Alexander Moch:
+1. `Serialize vdev_dtl_required() with vdev_dtl_reassess()` (path 1)
+2. `ZTS: send_encrypted_freeobjects: run the touches on every CPU` (v2)
+3. `Keep the per-CPU object allocator inside its own chunk` (fix 2+3)
+4. `Reset vdev_resilver_txg once DTL_MISSING is empty` (path 2)
+5. `**DEBUG** CI: ...` (matrix, regression groups, verify.run,
+   counters, -nocheck, watchdog, other workflows dispatch only)
+Commits 1-4 are the candidates for upstream PRs, separate per fix.
+Smoke patch `~/Development/smoke-on-upstream-master.patch`, run
+alex-moch 39029609364. The 80-job patch is not yet written out
+(waits for the smoke timings). Committer identity is passed per
+command via GIT_COMMITTER_NAME/EMAIL. Never set user.name in the
+shared repo config (zfs-meta is a worktree of the same repo).

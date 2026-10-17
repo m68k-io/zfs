@@ -1997,61 +1997,68 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   300 kmemleak jobs: 0 real timeouts, 92.0% green without hangs/hosts.
 - **zpool_offline_spare:** path 1 (vdev_dtl_required() dry run flips
   vdev_cant_read, sync-context reassess sees it) fixed by
-  `spa_dtl_reassess_lock` (`claude/dtl_required_race`, e1e3d0009,
-  committed as the user, pushed to m68k-io). CI with the fix: 1 panic
-  in about 148000 passes (was 0.07-0.29%/pass). **Path 2 remains**:
-  a real `zpool offline` (vdev_offline_locked: vdev_offline = B_TRUE,
-  then vdev_reopen, under SCL_STATE_ALL only) overlaps the resilver's
-  scan done; DTL_OUTAGE non-empty blocks the resilver_txg reset.
-  Candidate: reset on empty DTL_MISSING alone (condition from
-  5d1f7fb64, 2013, reason unknown). **Planned next (agreed):** local
-  repro with a delay between `vdev_offline = B_TRUE` and `vdev_reopen()`,
-  compare current code vs "MISSING only"; if it holds, include it in
-  the overnight run with extra regression groups (replacement,
-  offline/online, resilver).
-- **send_encrypted_freeobjects:** v1 (tries=256) failed in CI (9 FAIL in
-  about 20000: 4x "128", 5x "129"; 2-vCPU VMs; 129 only from the CPU
-  owning the 128 chunk). **v2 written, not yet tested locally**: each
-  touch on the next CPU via `taskset -c` (Linux) / `cpuset -l`
-  (FreeBSD), fallback plain touch; `taskset`/`cpuset` added to
-  commands.cfg. Worktree `~/Development/zfs-objnum` (uncommitted), diff
-  `~/Development/offspare-local/send-encrypted-freeobjects-v2.diff`.
-  Validate after the large_dnode series: pinned run
-  (`taskset -c 0 zfs-tests.sh -t ...`, v1 was 4/4 FAIL) and normal runs.
-- **large_dnode_008_pos:** two mechanisms. (1) overwritten per-CPU
-  chunks (small/medium holes) fixed by fix 2 (per-slot chunk end
-  `os_obj_next_percpu_end[]`). (2) cascade behind all 33 CI failures
-  (> 5%): huge dnode_hold_free_misses; hypothesis: "stray" reservations
-  past the chunk end (concurrent atomic_add near the end) land in a
-  chunk later handed to another slot. **Fix 3** (check each reserved
-  number against the chunk end read before/after the add, refill if
-  past it): `~/Development/offspare-local/objalloc_fix3.py <tree>
-  [--debug]` (debug adds counter zfs_debug_objalloc_stray and tunable
-  zfs_debug_objalloc_check_end). **Running locally now**: 60 passes
-  check off (dnode-fix3off.tsv), then 60 check on (dnode-fix3on.tsv),
-  via `dnode-hunt2.sh`; background notifications are set. Clean fix 2
-  in `~/Development/zfs-objfix` (uncommitted), fix 3 not yet there.
+  `spa_dtl_reassess_lock`. CI with the fix: 1 panic in about 148000
+  passes. **Path 2 reproduced locally and fixed:** zpool offline sets
+  vdev_offline, dsl_scan_done() excises DTL_MISSING while the spare is
+  still open (state=7), the reopen lands before the readable check,
+  DTL_OUTAGE is full, resilver_txg reset skipped, next resilver trips
+  the VERIFY. Repro needs three delays (scan done before reassess,
+  offline between flag and reopen, reassess between excise and readable
+  check): `~/Development/offspare-local/p2d3.sh <label> 3000 <mo> <n>
+  4000 3000` on the zfs-master module. Current code 5/5 stale, "reset on
+  empty DTL_MISSING alone" 0/5. Fix commit `Reset vdev_resilver_txg once
+  DTL_MISSING is empty` (should_excise() only excises from DEGRADED up,
+  so empty MISSING means complete data; 5d1f7fb64 gives no reason for
+  the OUTAGE condition).
+- **send_encrypted_freeobjects:** v1 (tries=256) failed in CI. **v2
+  verified locally**: each touch on the next CPU via `taskset -c` /
+  `cpuset -l`, fallback plain touch. Pinned to CPU 0 (`taskset -c 0
+  zfs-tests.sh -t ...`): v1 4/4 FAIL, v2 4/4 PASS. Alpine's util-linux
+  auto-installs util-linux-misc (taskset).
+- **large_dnode_008_pos:** two mechanisms, both fixed by commit `Keep
+  the per-CPU object allocator inside its own chunk` (fix 2 per-slot
+  chunk end + fix 3 past-the-end check). On 2 vCPUs the cascade does not
+  occur on its own (51 passes check off: 0 strays). With DEBUG tunable
+  zfs_debug_objalloc_delay=1 (zfs-master only): check off 2/2 FAIL
+  (pct_empty 79, ~290k free_misses, ~15k strays/pass), check on 30/30
+  PASS (pct_empty 0, free_misses 1, 8013 strays rejected). Results
+  `~/Development/offspare-local/dnode-delay{off-probe,on-probe,on}.tsv`.
 - **zvol_stress:** reproduced locally; issue draft with three options in
   `~/Development/offspare-local/zvol-stress-issue-draft.md`, not posted.
 - **ctime_001_pos:** patch ready, not posted.
-- **Overnight run plan (agreed, not built):** one alex-moch patch on
-  latest upstream master, about 80 jobs (2 waves of 40): commits =
-  dtl lock fix, send_encrypted v2, large_dnode fix 2+3 (+ path-2 fix if
-  the local repro holds); DEBUG = verify.run (offline_spare,
-  large_dnode_008_pos, send_encrypted_freeobjects, -I 250), counters
-  incl. stray, check_end tunable by job-name suffix `-nocheck`, panic
-  watchdog. Arms: Alpine kml check on 28 / off 16, nokml on 18 / off
-  10, 8 distros (check on). User pushes the patch.
+- **Overnight run: built, smoke run running.** Branch
+  `claude/overnight_1017` (worktree `~/Development/zfs-overnight`, on
+  upstream master 073e32604): 4 fix commits (dtl lock, send_encrypted
+  v2, allocator, resilver_txg MISSING-only) + DEBUG commit for 80 jobs:
+  Alpine kml 28 / kml -nocheck 16 / nokml 18 / nokml -nocheck 10 + 8
+  distros. Per VM: regression groups once (replacement, fault,
+  zpool_offline/online/resilver/reopen/replace/attach/detach; output in
+  /var/tmp/regress-{console,log,exitcode}.txt), then verify.run
+  -I 200 (kml) / 250 (nokml), DEBUG counters to debug-counters.txt,
+  verify skipped after a panic in the groups. `-nocheck` sets
+  zfs_debug_objalloc_check_end=0 in qemu-6-tests.sh, test logs `DEBUG
+  check_end`. Budget kml: ~66 min groups + ~138 min verify < 300.
+  Smoke branch `claude/overnight_1017_smoke` (worktree
+  `~/Development/zfs-smoke`): same commits, 16 jobs (2 per Alpine arm
+  + 8 distros), ITER=40. Patch `~/Development/smoke-on-upstream-master.patch`,
+  pushed by the user as alex-moch run **39029609364** (commit 04ea2c9c3).
+  Local checks done: full build clean, verify.run x3 27/27 PASS with the
+  overnight module, check_end 0 path works. Next: evaluate smoke
+  (builds on all distros, taskset, timings, regress failures vs.
+  baseline), adjust -I, then hand over the 80-job patch for alex-moch;
+  m68k-io gets a 40-job run once its runs are done (user, 2026-10-17).
 - **Evaluated runs:** alex-moch 39011696121 (verify x40, cancelled after
   39 jobs, data `~/Development/logs/verify40/`), m68k-io 39004751582
   (repeat x20 + dtl fix, data `~/Development/logs/dtlfix/`). m68k-io
   39004751720 (normal full CI with dtl fix) still to check.
-- **Local VM state:** 2 vCPUs, `kmemleak=on mitigations=off` in GRUB
-  (backups `*.bak-20261016`). Loaded module = experimental
-  `~/Development/zfs-master` (5d7c42cfd + dtl fix + DEBUG counters in
-  vdev.c/zio.c/dmu_object.c + large_dnode fix 2 + fix 3 --debug +
-  instrumented large_dnode test incl. stray). Its dmu_object.c before
-  fix 3: `~/Development/offspare-local/dmu_object.c.fix2-counters`.
+- **Local VM state:** 2 vCPUs, `kmemleak=on mitigations=off`.
+  Loaded module = `~/Development/zfs-overnight` (the overnight patch).
+  `~/Development/zfs-master` holds the experimental build with all repro
+  tunables (objalloc delay, path-2 delays D1/D2/D3, missing_only,
+  counters). Backups of its files before each step in offspare-local
+  (`dmu_object.c.fix3-debug`, `vdev.c.before-path2`,
+  `dsl_scan.c.before-d3`). Stay at 2 vCPUs (my advice when the user
+  offered 24 again: CI has 2, the delays make races reproducible).
 - **Open decisions for the user:** post offline_spare fix; commit/post
   send_encrypted, ctime, large_dnode fixes; file the zvol_stress issue;
   test-runner kmemleak-log patch; kmemleak off on Xeon 8370C/8573C if

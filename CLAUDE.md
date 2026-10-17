@@ -2046,6 +2046,45 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   Evaluation: `~/Development/logs/overnight-eval/fetch.sh <dir> <repo>
   <run> <tag>...` then `python3 -I evaluate.py <dir>` (parser fixed:
   a test's notes follow its result line; stats checked against scipy).
+- **kmemleak scan creep in normal runs (measured 2026-10-17):** scan
+  time = gap between a test's last output line and its result line in
+  vm*/current/log (setup/cleanup, not scanned, stay at 0.01 s as the
+  control). 300-run statistics, 250 of 300 jobs from local copies
+  (`~/Development/logs/scan-drift-300/local/`, 500 VMs): median 0.95 s in
+  hour 0, 1.40, 1.93, 2.66 s in hour 3; per VM hour 3 / hour 0 = 2.98x
+  (p10 1.90, p90 3.70); scans are 9% of the runtime (p10 8, p90 11), ZTS
+  3.7 h median. x60 run (mitigations on): 1.33 s -> 4.49 s by hour 4,
+  2.29x per VM. Script `~/Development/logs/scan-drift/scan_drift.py`.
+  drop_caches costs 0.88 s with 550k dentries, ~0.01 s per test group.
+  Test body of zpool_offline_spare: 1.47 s with kmemleak, 0.51 s without
+  (smoke), so the race-widening part of kmemleak is the per-allocation
+  overhead, which drop_caches should not change. Per-CPU table of the
+  300 runs: `~/Development/logs/kmemleak-nomit-009-38609815452/per-cpu-300-clean.txt`.
+- **Enablement thread reply:** draft in
+  `claude-notes/DRAFT-enablement-reply.md` (caution + 300-run numbers +
+  4 optional additions, user chooses). Not posted.
+- **Game plan (2026-10-17 evening):**
+  1. ~20:15-20:30 local: the sanity runs (alex-moch 39050378129, m68k-io
+     39050298833) and the 5 h runs (alex-moch 39035105849, m68k-io
+     39035021030) finish. Watchers were set in this session. If they are
+     gone after a compaction, check with `gh run view`.
+  2. Fetch all four with `~/Development/logs/overnight-eval/fetch.sh
+     <dir> <repo> <run> <tag>` (artifacts right away, attempts overwrite
+     them), evaluate with `python3 -I evaluate.py <dir>`. Check: panics
+     (expect 0), reset_outage > 0 (path 2 in CI), passes per host,
+     regress groups, alpine3-24-10 (runner lost), sanity: test-runner
+     hook works on almalinux9/fedora44, kmemleak-samples.txt present,
+     scan slope per VM normal vs -dropcaches (relative to the VM's first
+     sample), test body equal in both arms, deadline-reached.txt and
+     debug-counters.txt present.
+  3. The user decides on the big run: `~/Development/overnight-80-on-upstream-master.patch`
+     (alex-moch, user pushes) and optionally
+     `~/Development/overnight-m68k-40-on-upstream-master.patch` (m68k-io,
+     only on the user's go). Then the VM is shut down.
+  4. Next day: evaluate the big run, finish the enablement reply, plan
+     the upstream PRs (commits 1-4 of the overnight branch, one PR each,
+     plus ctime, zvol_stress issue, possibly a test-runner drop_caches
+     patch).
 - **kmemleak slowdown explained locally, -dropcaches arm (2026-10-17
   evening):** on this VM a kmemleak scan took 12.6 s from the start, the
   offline_spare test itself 1.4 s. 4.6 M tracked objects, 3.6 M of them
@@ -2115,15 +2154,14 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   mmp_active_import and almalinux8 zfs_destroy_dev_removal_condense
   (both known upstream flakes); almalinux9 and alpine3-24 were still
   running at 15:00 local, to check.
-- **Local VM state:** shut down 2026-10-17 ~15:15 local, comes back with
-  24 vCPUs (`kmemleak=on mitigations=off` stay). Loaded module was
-  `~/Development/zfs-overnight`, nothing loads automatically.
-  `~/Development/zfs-master` = experimental build with all repro
-  tunables (objalloc delay, path-2 delays D1/D2/D3, missing_only).
-  `~/Development/zfs-baseline` = plain 073e32604, userspace only (for
-  zloop). After the restart: `rm ~/Development/offspare-local/zloop-ab.stop`
-  and restart `~/Development/offspare-local/zloop-ab.sh 16` in the
-  background (no block had finished before the shutdown).
+- **Local VM state:** 24 vCPUs since the evening reboot, `kmemleak=on
+  mitigations=off`. The VM is not kept up overnight (user). Loaded
+  module: `~/Development/zfs-overnight` (the system's old zfs.ko loads at
+  boot and must be swapped with `scripts/zfs.sh -u` + `zfs.sh`, no pools
+  then). `~/Development/zfs-master` = experimental build with all repro
+  tunables, `~/Development/zfs-baseline` = plain 073e32604 userspace.
+  The local A/B zloop is dropped (leak class is known upstream), the
+  stop file stays. No pools are left over.
 - **Open decisions for the user:** post offline_spare fix; commit/post
   send_encrypted, ctime, large_dnode fixes; file the zvol_stress issue;
   test-runner kmemleak-log patch; kmemleak off on Xeon 8370C/8573C if

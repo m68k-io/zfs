@@ -2816,3 +2816,30 @@ bits 15-20 are all used. Options for maintainers, not decided.
   with three fix options: `zvol-stress-issue-draft.md`. Not posted.
   zfs_recover does not help: ASSERT is VERIFY in debug builds and calls
   spl_panic() directly.
+
+### send_encrypted_freeobjects solved (2026-10-17, local, 2 vCPU)
+
+`~/Development/offspare-local/objnum.sh <mode> <trials> [tries]` repeats
+`create_object_with_num` on a fresh encrypted dataset (xattr=sa,
+dnodesize=legacy) and logs every object number. Numbers count up inside
+one CPU's chunk (2, 3, 4, ...), removed numbers are not reused right
+away, and 128 only comes when a touch runs on the other CPU (whose new
+chunk starts at 128). pin0 (all touch on CPU 0), 100 tries: 50/50 FAIL.
+alt (alternating CPUs): 50/50 PASS at try 2. free: 200/200 PASS (2-24
+tries). pin0 with 256 tries: 50/50 PASS, always at try 122 (CPU 0's
+chunk used up, next chunk starts at 128). Real test pinned with
+`taskset -c 0 zfs-tests.sh -t ...`: old 4/4 FAIL, with tries=256 5/5
+PASS. Fix: `~/Development/offspare-local/send-encrypted-freeobjects-tries.diff`
+(branch `claude/send_encrypted_freeobjects_tries`, worktree
+`~/Development/zfs-objnum`, uncommitted). send_freeobjects.ksh only needs
+three consecutive numbers from one touch, not affected.
+
+### large_dnode_008_pos: allocator jumps (started 2026-10-17)
+
+The per-CPU chunk idea cannot explain gaps of 8000-10000 slots on 2-4
+vCPUs. Candidate: in dmu_object_alloc_impl() every L1 worth (32768
+objects) dnode_next_offset() looks for a sparse L1 by blk_fill, which is
+only updated at txg sync, so it can jump forward and leave holes. DEBUG
+dbgmsg "DEBUG objalloc from= to=" in `~/Development/zfs-master`.
+`dnode-hunt.sh <label> <passes>`: normal pass = 8 lines with from == to.
+300 passes running (dnode-k2.tsv, dnode-k2-jumps.txt).

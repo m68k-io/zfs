@@ -2751,3 +2751,43 @@ branch `claude/offline_spare_panic_x20`, on upstream master 5d7c42cfd):
 - Reading it: the other distros panic too -> generic bug that needs
   repetition. Only expspare panics -> state from the expand group (ZED).
   The DEBUG lines tell whether resilver_txg is stale.
+
+### Cluster 19 update (2026-10-17): offline_spare root cause
+
+Overnight runs m68k-io 38958441345 (20 jobs) and alex-moch 38959249061
+(40 jobs, `alpine/offline_spare_panic_x40`). Data and scripts in
+`~/Development/logs/offspare/` (`analyze.py`, `analysis.txt`,
+`excise_pattern.py`).
+
+- **Every distro panics**, same VERIFY (12 < 8): almalinux9/10,
+  debian12/13, fedora44, ubuntu22/24/26, 19 of 24 control VMs. Per pass
+  0.015-0.09%. Alpine without kmemleak 0.07%, with kmemleak 0.29% (36 of
+  36 VMs), expspare kmemleak 0.85% / nokmemleak 0.15% (few events).
+  Generic upstream bug that needs repetition. kmemleak (slower) raises
+  the rate about 4x. ZED/expand not needed.
+- DEBUG dbgmsg: in 93 of 956 mirror passes the first resilver (scan done
+  at txg 13) excises the spare's DTL [3,11] to empty ("DTL_MISSING is
+  now empty") but resilver_txg is NOT reset. Every panic comes from such
+  a pass where the resilver after `zpool online` then starts at 12 > 8.
+- Cause: `vdev_dtl_required()` (from `zpool offline`) sets
+  `vd->vdev_cant_read = B_TRUE` temporarily under SCL_STATE_ALL writer.
+  spa_sync only holds SCL_CONFIG reader during dsl_scan_sync, so the
+  sync-context `vdev_dtl_reassess()` from dsl_scan_done() runs at the same
+  time, sees the vdev unreadable, sets DTL_OUTAGE to everything and skips
+  the resilver_txg reset (vdev.c reset needs DTL_OUTAGE empty).
+- Fix (branch `claude/dtl_required_race`, worktree
+  `~/Development/zfs-dtlfix`, on 5d7c42cfd, not committed yet): new
+  `spa_dtl_reassess_lock`, held by `vdev_dtl_reassess()` and across the
+  flip and both dry-run reassesses in `vdev_dtl_required()`. cstyle ok.
+- Local proof in `~/Development/offspare-local/` with
+  `~/Development/zfs-master` (5d7c42cfd + DEBUG: delay param
+  zfs_vdev_debug_dtl_required_delay_ms inside the cant_read window,
+  assertion turned into counter zfs_vdev_debug_stale_resilver_txg, plus
+  zfs_vdev_debug_cant_read_in_sync). `repro.sh <label> <delay> <passes>`.
+
+zvol_stress: the throttle assertion was relaxed in 21df134f4 (2017) with
+the global zio_injection_enabled, and that commit message itself says a
+per-zio "injected" flag would be the better fix. A non-inherited flag is
+not enough: on a mirror an injected leaf error can make the logical zio
+retry and its vdev children inherit only IO_RETRY, and the vdev-inherit
+bits 15-20 are all used. Options for maintainers, not decided.

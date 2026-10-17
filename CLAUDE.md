@@ -2035,13 +2035,15 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   FAIL in the 300 pre-fix kmemleak jobs too) and 1x scrub_cancel KILLED
   on almalinux10 (idle hang in `zpool wait` after `zpool replace -s`, no
   blocked thread; also KILLED once on 2026-10-15 without any fix).
-  Timings: regress 20-35 min, verify 0.11-0.70 min/iteration, so
-  ITER = 200 (kmemleak) / 350 (rest), worst projected ~170 min of 300.
-  Patches on upstream master 073e32604, checked with git am:
-  `~/Development/overnight-80-on-upstream-master.patch` (alex-moch, 80
-  jobs: kml 28 / kml -nocheck 16 / nokml 18 / nokml -nocheck 10 + 8
-  distros) and `~/Development/overnight-m68k-40-on-upstream-master.patch`
-  (branch `claude/overnight_1017_m68k`, 24 kml + 16 nokml, check on).
+  Timings: regress 20-35 min, verify 0.11-0.70 min/iteration.
+  **Current patch state (supersedes the matrix and ITER given here
+  before):** time-budgeted and with the -dropcaches arm, see the two
+  bullets "kmemleak slowdown explained locally" and "Overnight patches
+  now time-budgeted" below. Files:
+  `~/Development/overnight-80-on-upstream-master.patch` (alex-moch,
+  branch `claude/overnight_1017` ac4f273b0) and
+  `~/Development/overnight-m68k-40-on-upstream-master.patch` (branch
+  `claude/overnight_1017_m68k` 8ec2a8afd), both git am checked.
   **The user pushes; never push a big run without an explicit go.**
   Evaluation: `~/Development/logs/overnight-eval/fetch.sh <dir> <repo>
   <run> <tag>...` then `python3 -I evaluate.py <dir>` (parser fixed:
@@ -2118,9 +2120,9 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   '/test-runner\.py'` also matches any shell whose command line contains
   that path. Commit messages are kept in
   `~/Development/offspare-local/msgs/` (the scratchpad does not survive a
-  reboot). Open question from the user: why kmemleak slows down over a
-  run (hypotheses: growing tracked objects, kmemleak bookkeeping),
-  not measured yet.
+  reboot). The commit ids named in this bullet were superseded by the
+  -dropcaches rebuild (ac4f273b0 / 8ec2a8afd). Why kmemleak slows down
+  over a run: answered by the scan creep measurement above.
 - **5 h offline_spare run (started 2026-10-17 15:05 local, user's go):**
   branch `claude/offspare_5h` (alex-moch run **39035105849**, user
   pushed patch `~/Development/offspare-5h-40-on-upstream-master.patch`,
@@ -2135,10 +2137,9 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
 - **zloop:** 1 crash in the first 30 min with the overnight tree:
   "obsolete indirect mapping count mismatch ... leaked 4096", a known
   upstream class (same message in 2 upstream zloop failures, 7 of 25
-  upstream failures are leaked space). Local A/B zloop (baseline
-  073e32604 vs overnight, 30 min blocks, 16 h) running:
-  `~/Development/offspare-local/zloop-ab/blocks.tsv`, stop with
-  `touch ~/Development/offspare-local/zloop-ab.stop`.
+  upstream failures are leaked space). The local A/B zloop was stopped
+  and dropped (VM not up overnight); no block had finished. Crash dir
+  with vdevs: `~/Development/offspare-local/zloop-cores/`.
 - **Evaluated runs:** alex-moch 39011696121 (verify x40, cancelled after
   39 jobs, `~/Development/logs/verify40/`). m68k-io 39004751582 (#132,
   repeat x20 + dtl fix, complete, `~/Development/logs/dtlfix/`,

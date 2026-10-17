@@ -2123,8 +2123,22 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   vs 0.51 -> 0.61 s (dropcaches) from minute 0 to 50, a small effect
   as expected in 1 h with 3 tests. The watchdog's 10-min scans (10-25 s,
   0.35-1.4 M objects) run during a test and are not comparable to the
-  per-test gap. 10-min-bin script: `~/Development/logs/scan-drift/scan_drift10arm.py`
+  per-test gap.
+  10-min-bin script: `~/Development/logs/scan-drift/scan_drift10arm.py`
   (copy of scan_drift.py, bins of 600 s, grouped by arm).
+- **5 h offline_spare runs evaluated (2026-10-17, ~20:30):** kml jobs
+  cancelled at 4:30 by the user (could not reach 3000 iterations), all
+  others green, alpine3-24-10 on m68k-io = lost runner. Local copies
+  `~/Development/logs/offspare5h/`. zpool_offline_spare with the 4
+  fixes: 0 failures in 488,056 passes (kml 128,056, nokml 280,000,
+  distros 80,000), no VERIFY/panic/hang/kmemleak report.
+  vdev_debug_reset_outage fired 24 times (nokml 23, distro 1), so the
+  path-2 window is hit in CI and the fix keeps the test green. kml
+  arm has no counters (cancelled, 5 h branch has no per-minute dump).
+  Body: kml 1.52-1.56 s, nokml 0.55 s, distros 0.80 s. One soft lockup
+  on almalinux10 (EPYC 9V74): kworker in disk_events_workfn ->
+  ata_scsi_queuecmd (CD-ROM poll, emulated AHCI), no ZFS frames, job
+  green. Classified as host stall.
 - **Overnight patches now time-budgeted (2026-10-17 evening):** a fixed
   iteration count failed in the 5 h run: kmemleak jobs need 3-12 s per
   offline_spare pass depending on host and run time (#132: +40-55% over

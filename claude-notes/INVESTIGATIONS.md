@@ -2804,3 +2804,6 @@ bits 15-20 are all used. Options for maintainers, not decided.
 - expspare VMs with watchdog dumps but no panic: all stall in the
   zpool_expand group right after setup, some with udevd in D state.
   The known zpool_expand repetition issue, not chased.
+- Regression run on the fixed module: 132 PASS, 3 FAIL + 1 SKIP all in
+  the expected list (auto_replace_001/002, auto_spare_multiple,
+  removal_with_zdb), 0 unexpected, 33 min, no hang.

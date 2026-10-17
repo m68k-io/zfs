@@ -946,6 +946,16 @@ so a leak near the end of a short test is reported by a later test.
 Worktree `~/Development/zfs-kmemleak-revert`. Delete after the result
 is reported.
 
+## `claude/dtl_required_race` and `claude/dtl_required_race_x20` (2026-10-17, m68k-io)
+
+Fix e1e3d0009 "Serialize vdev_dtl_required() with vdev_dtl_reassess()"
+on upstream master 5d7c42cfd, worktree `~/Development/zfs-dtlfix`.
+Normal full CI: zfs-qemu run 39004751720 (plus checkstyle, smatch,
+unit-tests, CodeQL, precheck, zloop, zfs-arm). `_x20` = fix + the
+offline_spare repeat debug commit (6e7126952), worktree
+`~/Development/zfs-dtlfix-x20`, zfs-qemu run 39004751582. Expect 0
+panics there. Not posted upstream. Details: INVESTIGATIONS.md cluster 19.
+
 ## `claude/offline_spare_panic_x20` (2026-10-16, DEBUG, m68k-io)
 
 On upstream master 5d7c42cfd (new rule: debug branches on upstream

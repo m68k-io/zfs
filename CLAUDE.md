@@ -2026,27 +2026,33 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
 - **zvol_stress:** reproduced locally; issue draft with three options in
   `~/Development/offspare-local/zvol-stress-issue-draft.md`, not posted.
 - **ctime_001_pos:** patch ready, not posted.
-- **Overnight run: built, smoke run running.** Branch
-  `claude/overnight_1017` (worktree `~/Development/zfs-overnight`, on
-  upstream master 073e32604): 4 fix commits (dtl lock, send_encrypted
-  v2, allocator, resilver_txg MISSING-only) + DEBUG commit for 80 jobs:
-  Alpine kml 28 / kml -nocheck 16 / nokml 18 / nokml -nocheck 10 + 8
-  distros. Per VM: regression groups once (replacement, fault,
-  zpool_offline/online/resilver/reopen/replace/attach/detach; output in
-  /var/tmp/regress-{console,log,exitcode}.txt), then verify.run
-  -I 200 (kml) / 250 (nokml), DEBUG counters to debug-counters.txt,
-  verify skipped after a panic in the groups. `-nocheck` sets
-  zfs_debug_objalloc_check_end=0 in qemu-6-tests.sh, test logs `DEBUG
-  check_end`. Budget kml: ~66 min groups + ~138 min verify < 300.
-  Smoke branch `claude/overnight_1017_smoke` (worktree
-  `~/Development/zfs-smoke`): same commits, 16 jobs (2 per Alpine arm
-  + 8 distros), ITER=40. Patch `~/Development/smoke-on-upstream-master.patch`,
-  pushed by the user as alex-moch run **39029609364** (commit 04ea2c9c3).
-  Local checks done: full build clean, verify.run x3 27/27 PASS with the
-  overnight module, check_end 0 path works. Next: evaluate smoke
-  (builds on all distros, taskset, timings, regress failures vs.
-  baseline), adjust -I, then hand over the 80-job patch for alex-moch;
-  m68k-io gets a 40-job run once its runs are done (user, 2026-10-17).
+- **Overnight run: smoke passed, patches ready, not pushed.** Smoke
+  alex-moch 39029609364 (16 jobs, 40 iterations): all builds OK, taskset
+  everywhere (only pax missing outside Alpine, as before), check_end 0/1
+  per arm, counters arrive (reset_outage 0), 2560 verify passes clean,
+  pct_empty 0 everywhere. Regress groups: only the 3 always-failing
+  known fault tests (auto_replace_001/002, auto_spare_multiple: 195/195
+  FAIL in the 300 pre-fix kmemleak jobs too) and 1x scrub_cancel KILLED
+  on almalinux10 (idle hang in `zpool wait` after `zpool replace -s`, no
+  blocked thread; also KILLED once on 2026-10-15 without any fix).
+  Timings: regress 20-35 min, verify 0.11-0.70 min/iteration, so
+  ITER = 200 (kmemleak) / 350 (rest), worst projected ~170 min of 300.
+  Patches on upstream master 073e32604, checked with git am:
+  `~/Development/overnight-80-on-upstream-master.patch` (alex-moch, 80
+  jobs: kml 28 / kml -nocheck 16 / nokml 18 / nokml -nocheck 10 + 8
+  distros) and `~/Development/overnight-m68k-40-on-upstream-master.patch`
+  (branch `claude/overnight_1017_m68k`, 24 kml + 16 nokml, check on).
+  **The user pushes; never push a big run without an explicit go.**
+  Evaluation: `~/Development/logs/overnight-eval/fetch.sh <dir> <repo>
+  <run> <tag>...` then `python3 -I evaluate.py <dir>` (parser fixed:
+  a test's notes follow its result line; stats checked against scipy).
+- **zloop:** 1 crash in the first 30 min with the overnight tree:
+  "obsolete indirect mapping count mismatch ... leaked 4096", a known
+  upstream class (same message in 2 upstream zloop failures, 7 of 25
+  upstream failures are leaked space). Local A/B zloop (baseline
+  073e32604 vs overnight, 30 min blocks, 16 h) running:
+  `~/Development/offspare-local/zloop-ab/blocks.tsv`, stop with
+  `touch ~/Development/offspare-local/zloop-ab.stop`.
 - **Evaluated runs:** alex-moch 39011696121 (verify x40, cancelled after
   39 jobs, data `~/Development/logs/verify40/`), m68k-io 39004751582
   (repeat x20 + dtl fix, data `~/Development/logs/dtlfix/`). m68k-io

@@ -76,3 +76,21 @@ errata4` (leak), `autotrim_config`, `scrub_cancel` KILLED,
   Mitigations without kmemleak: 2:16 -> 2:29 (~10%).
 - The one red `-nokmemleak` job is `zarcsummary_001_pos` (ksh, cluster 15).
 - No leak reports in the two kmemleak groups.
+
+## Fifth attempt (2026-10-16 10:27 UTC), 300 jobs per CPU
+
+`results-a5.txt` in both directories, `per_cpu.py`, output
+`kmemleak-nomit-009-38609815452/per-cpu-300.txt`.
+
+| CPU | jobs | green | unexpected | 300 min | Run tests min (median) | slower VM (median) | zfs_get_009 (median) |
+|---|---|---|---|---|---|---|---|
+| EPYC 7763 | 133 | 123 (92%) | 9 | 1 | 243 | 4:03 | 7:15 |
+| EPYC 9V74 | 72 | 61 (85%) | 8 | 3 | 207 | 3:27 | 5:19 |
+| EPYC 9V45 | 52 | 47 (90%) | 3 | 2 | 177 | 2:58 | 3:59 |
+| Xeon 8573C | 26 | 21 (81%) | 3 | 2 | 256 | 4:16 | 5:59 |
+| Xeon 8370C | 8 | 8 | 0 | 0 | 274 | 4:35 | 6:57 |
+| Xeon 6973P-C | 6 | 6 | 0 | 0 | 230 | 3:51 | 4:21 |
+| no CPU (infra) | 3 | 1 | 0 | 0 | - | - | - |
+
+raidz_expand_001_pos 6 (4 on 9V74), ctime 3 (all 7763), large_dnode 3,
+send_encrypted_freeobjects 2, zpool_import_parallel_pos 2, others 1 each.

@@ -2046,6 +2046,26 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   Evaluation: `~/Development/logs/overnight-eval/fetch.sh <dir> <repo>
   <run> <tag>...` then `python3 -I evaluate.py <dir>` (parser fixed:
   a test's notes follow its result line; stats checked against scipy).
+- **kmemleak slowdown explained locally, -dropcaches arm (2026-10-17
+  evening):** on this VM a kmemleak scan took 12.6 s from the start, the
+  offline_spare test itself 1.4 s. 4.6 M tracked objects, 3.6 M of them
+  dentry/xfs_inode/lsm_inode from our worktrees, logs and VS Code. After
+  `echo 2 > drop_caches` 1.0 M objects and 1.9-2.4 s per scan, the CI
+  range. Scan time follows tracked objects (+ RAM: 64 GB here, 8 GB per
+  CI VM), not IPC. Overnight patches gained a test-runner hook
+  (TestGroup.run, before setup, only with -m and
+  ZTS_KMEMLEAK_DROP_CACHES=1) set by job names *-dropcaches*, plus
+  watchdog samples (largest slab caches + one timed scan every 10 min,
+  /var/tmp/kmemleak-samples.txt). Hook tested locally (dentries 501k ->
+  16k before the first setup, 9/9 PASS, flake8 clean). Overnight-80:
+  kml 20 / dropcaches 8 / nocheck 16 / nokml 18 / nokml-nocheck 10 / 8
+  distros (ac4f273b0); m68k-40: kml 16 / dropcaches 8 / nokml 16
+  (8ec2a8afd). Sanity runs (60 min deadline, no regress groups):
+  alex-moch **39050378129** (16 jobs, patch
+  `~/Development/sanity-16-on-upstream-master.patch`) and m68k-io
+  **39050298833** (8 jobs, pushed on the user's go). If drop_caches
+  helps, candidate upstream test-runner patch: drop per test group under
+  -m. Local A/B zloop dropped (VM not up overnight).
 - **Overnight patches now time-budgeted (2026-10-17 evening):** a fixed
   iteration count failed in the 5 h run: kmemleak jobs need 3-12 s per
   offline_spare pass depending on host and run time (#132: +40-55% over

@@ -1985,64 +1985,74 @@ switch to master. Patch file for the 40-runner setup:
 
 ## Update (2026-10-17): root causes for all four "Alpine flakes", fixes in testing
 
-Details in `claude-notes/INVESTIGATIONS.md` cluster 19 and the
-large_dnode / send_encrypted sections after it, branches in
-`claude-notes/BRANCHES.md`, statistics in
-`claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
+Details: `claude-notes/INVESTIGATIONS.md` cluster 19 and the sections
+after it (send_encrypted, large_dnode, verify-run evaluation, fix 3,
+send_encrypted v2), branches in `claude-notes/BRANCHES.md`, statistics
+in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
 
 - **Conclusion agreed with the user:** the Alpine runner is solid. Only
-  `ctime_001_pos` was a real musl compatibility problem (the DIO EIO
-  message came after the runner was already green). Everything else is
-  pre-existing upstream races and test bugs that kmemleak (slow, wider
-  race windows) exposes, and they reproduce on other distros too.
-  Comment for the alpine-default PR (user posts it): a word of caution
-  not to attribute failures of this job to Alpine, no specifics.
-- **zpool_offline_spare** (VERIFY resilver_txg in vdev_dtl_should_excise):
-  race between vdev_dtl_required() (temporary vdev_cant_read under
-  SCL_STATE_ALL writer) and the sync-context DTL reassess at resilver
-  end. Fix `spa_dtl_reassess_lock`, committed as the user on
-  `claude/dtl_required_race` (e1e3d0009 on 5d7c42cfd; rebased copy
-  9f6fb4cd6 on 073e32604 inside the x40 patch). Local: 3/100 stale
-  without, 0/300 with, regression groups clean. CI m68k-io 39004751582
-  (repeat + fix): first 5 jobs 50000 passes 0 panics. Full CI
-  39004751720 was still queued. Not posted.
-- **send_encrypted_freeobjects:** test bug, per-CPU 128-dnode chunks,
-  tries=100 too few when all touches run on one CPU. Fix tries=256,
-  pinned real test 4/4 FAIL -> 5/5 PASS. Commit 4a8843773 (in the x40
-  patch), branch `claude/send_encrypted_freeobjects_tries`. Not posted.
-- **large_dnode_008_pos:** race in dmu_object_alloc_impl(): concurrent
-  refills of the same per-CPU slot overwrite a chunk in use. Holes =
-  lost chunk slots (correlation 1.000). Fix 2 (per-slot chunk end,
-  `os_obj_next_percpu_end[]`): 100 passes 0 holes (before 15/100, max
-  6837), ztest 10 min clean. Branch `claude/objalloc_chunk_race` on
-  073e32604, worktree `~/Development/zfs-objfix`, NOT committed yet.
-  Fix 1 (take over any changed slot value) was rejected: cascade with
-  34201 holes in 1/100.
-- **zvol_stress** (VERIFY zio_injection_enabled in zio_dva_throttle_done):
-  reproduced locally (14 of 38009 retried writes after zinject -c, no
-  delay). Issue draft `~/Development/offspare-local/zvol-stress-issue-draft.md`
-  with three fix options, not posted. zfs_recover does not help (ASSERT
-  is VERIFY in debug builds).
+  `ctime_001_pos` was a real musl compatibility problem. Everything else
+  is pre-existing upstream races and test bugs that kmemleak (slow,
+  wider race windows) exposes; they reproduce on other distros too.
+  300 kmemleak jobs: 0 real timeouts, 92.0% green without hangs/hosts.
+- **zpool_offline_spare:** path 1 (vdev_dtl_required() dry run flips
+  vdev_cant_read, sync-context reassess sees it) fixed by
+  `spa_dtl_reassess_lock` (`claude/dtl_required_race`, e1e3d0009,
+  committed as the user, pushed to m68k-io). CI with the fix: 1 panic
+  in about 148000 passes (was 0.07-0.29%/pass). **Path 2 remains**:
+  a real `zpool offline` (vdev_offline_locked: vdev_offline = B_TRUE,
+  then vdev_reopen, under SCL_STATE_ALL only) overlaps the resilver's
+  scan done; DTL_OUTAGE non-empty blocks the resilver_txg reset.
+  Candidate: reset on empty DTL_MISSING alone (condition from
+  5d1f7fb64, 2013, reason unknown). **Planned next (agreed):** local
+  repro with a delay between `vdev_offline = B_TRUE` and `vdev_reopen()`,
+  compare current code vs "MISSING only"; if it holds, include it in
+  the overnight run with extra regression groups (replacement,
+  offline/online, resilver).
+- **send_encrypted_freeobjects:** v1 (tries=256) failed in CI (9 FAIL in
+  about 20000: 4x "128", 5x "129"; 2-vCPU VMs; 129 only from the CPU
+  owning the 128 chunk). **v2 written, not yet tested locally**: each
+  touch on the next CPU via `taskset -c` (Linux) / `cpuset -l`
+  (FreeBSD), fallback plain touch; `taskset`/`cpuset` added to
+  commands.cfg. Worktree `~/Development/zfs-objnum` (uncommitted), diff
+  `~/Development/offspare-local/send-encrypted-freeobjects-v2.diff`.
+  Validate after the large_dnode series: pinned run
+  (`taskset -c 0 zfs-tests.sh -t ...`, v1 was 4/4 FAIL) and normal runs.
+- **large_dnode_008_pos:** two mechanisms. (1) overwritten per-CPU
+  chunks (small/medium holes) fixed by fix 2 (per-slot chunk end
+  `os_obj_next_percpu_end[]`). (2) cascade behind all 33 CI failures
+  (> 5%): huge dnode_hold_free_misses; hypothesis: "stray" reservations
+  past the chunk end (concurrent atomic_add near the end) land in a
+  chunk later handed to another slot. **Fix 3** (check each reserved
+  number against the chunk end read before/after the add, refill if
+  past it): `~/Development/offspare-local/objalloc_fix3.py <tree>
+  [--debug]` (debug adds counter zfs_debug_objalloc_stray and tunable
+  zfs_debug_objalloc_check_end). **Running locally now**: 60 passes
+  check off (dnode-fix3off.tsv), then 60 check on (dnode-fix3on.tsv),
+  via `dnode-hunt2.sh`; background notifications are set. Clean fix 2
+  in `~/Development/zfs-objfix` (uncommitted), fix 3 not yet there.
+- **zvol_stress:** reproduced locally; issue draft with three options in
+  `~/Development/offspare-local/zvol-stress-issue-draft.md`, not posted.
 - **ctime_001_pos:** patch ready, not posted.
-- **CI runs:** alex-moch 39011696121 = user-pushed
-  `~/Development/verify-x40-on-upstream-master.patch` (dtl fix +
-  send_encrypted fix + DEBUG verify.run with allocator counters, 40
-  runners, head e75e4e76b), running. Not yet evaluated.
-- **Statistics (300 kmemleak jobs, 5 attempts):** 0 real timeouts. The
-  8 timeouts are 3 panics, 2 removal_with_errors hangs (#19332), 3 host
-  problems. Without them 289 jobs, 92.0% green. Per-CPU table with
-  min/median/max and percentiles in the CI-RUN note. The PR #19382
-  numbers were higher because both VMs ran zfs_get_009_pos at the same
-  second in those isolated runs.
+- **Overnight run plan (agreed, not built):** one alex-moch patch on
+  latest upstream master, about 80 jobs (2 waves of 40): commits =
+  dtl lock fix, send_encrypted v2, large_dnode fix 2+3 (+ path-2 fix if
+  the local repro holds); DEBUG = verify.run (offline_spare,
+  large_dnode_008_pos, send_encrypted_freeobjects, -I 250), counters
+  incl. stray, check_end tunable by job-name suffix `-nocheck`, panic
+  watchdog. Arms: Alpine kml check on 28 / off 16, nokml on 18 / off
+  10, 8 distros (check on). User pushes the patch.
+- **Evaluated runs:** alex-moch 39011696121 (verify x40, cancelled after
+  39 jobs, data `~/Development/logs/verify40/`), m68k-io 39004751582
+  (repeat x20 + dtl fix, data `~/Development/logs/dtlfix/`). m68k-io
+  39004751720 (normal full CI with dtl fix) still to check.
 - **Local VM state:** 2 vCPUs, `kmemleak=on mitigations=off` in GRUB
-  (backups `/etc/default/grub.bak-20261016`,
-  `/boot/grub/grub.cfg.bak-20261016`). Loaded zfs module is the
-  experimental `~/Development/zfs-master` build (5d7c42cfd + dtl fix +
-  DEBUG counters in vdev.c/zio.c/dmu_object.c + large_dnode fix 2 +
-  instrumented large_dnode test). Unload before using another build.
-  `~/Development/zfs-dio-eio` libtest change reverted (saved as
-  `~/Development/large-dnode-local/zedkeep-libtest.diff`).
-- **Open decisions for the user:** post offline_spare fix after CI;
-  commit/post send_encrypted, ctime and large_dnode fixes; file the
-  zvol_stress issue; test-runner kmemleak-log patch; idea to disable
-  kmemleak on Xeon 8370C/8573C (11% of jobs) if runtimes creep up.
+  (backups `*.bak-20261016`). Loaded module = experimental
+  `~/Development/zfs-master` (5d7c42cfd + dtl fix + DEBUG counters in
+  vdev.c/zio.c/dmu_object.c + large_dnode fix 2 + fix 3 --debug +
+  instrumented large_dnode test incl. stray). Its dmu_object.c before
+  fix 3: `~/Development/offspare-local/dmu_object.c.fix2-counters`.
+- **Open decisions for the user:** post offline_spare fix; commit/post
+  send_encrypted, ctime, large_dnode fixes; file the zvol_stress issue;
+  test-runner kmemleak-log patch; kmemleak off on Xeon 8370C/8573C if
+  runtimes creep up.

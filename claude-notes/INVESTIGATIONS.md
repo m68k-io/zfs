@@ -2962,3 +2962,27 @@ fix), partial, data `~/Development/logs/dtlfix/`.
   atomic_add at the end), then slots walk through occupied regions.
   Fix 2 does not address it (keeps the original repair), and 100 local
   passes are too few at 0.17%. The test failures come from (2).
+
+### large_dnode fix 3 and send_encrypted v2 (2026-10-17 evening)
+
+- **Fix 3 design** (`~/Development/offspare-local/objalloc_fix3.py`):
+  read the slot's chunk end before and after
+  `atomic_add_64_nv(cpuobj, dn_slots)`; the reserved number is valid if
+  it lies within the end read before, or inside the chunk ending at the
+  end read after (a concurrent refill). Otherwise do not use it, set
+  `object = end_before` and loop, which forces a refill (or a take-over
+  of a refill done meanwhile). Side effect: after a failed hold that
+  jumped past the chunk (dmu_object_next), the slot also refills
+  instead of continuing in another chunk. Debug variant counts strays
+  and logs the first 20 ("DEBUG stray object= end=").
+- **send_encrypted v2:** the test only needs some freshly started block
+  (f1 first object, f2 = f1 + 1 after snapshot A); 128/129 is the
+  example. Alternating the touch CPU makes 128 come up when some CPU
+  starts the second chunk, and 129 within ncpu tries on the CPU owning
+  it. Local "alt" mode passed 50/50 at try 2.
+- **offline_spare path 2 details:** vdev_offline_locked() (vdev.c):
+  `vd->vdev_offline = B_TRUE; vdev_reopen(tvd);` under
+  spa_vdev_state_enter (SCL_STATE_ALL). The panic dump showed
+  `offline=1 state=7` at the first excise. Holding
+  spa_dtl_reassess_lock across vdev_reopen() would cover it but holds a
+  mutex across I/O; the "MISSING only" reset is the simpler candidate.

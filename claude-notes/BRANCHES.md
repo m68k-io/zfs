@@ -956,9 +956,11 @@ CI repeat check.
 
 ## `claude/send_encrypted_freeobjects_tries` (2026-10-17, fix, uncommitted)
 
-tries=256 in send_encrypted_freeobjects.ksh on 5d7c42cfd, worktree
-`~/Development/zfs-objnum`, uncommitted. The same change is committed
-as 4a8843773 in `claude/verify_x40` (on 073e32604).
+Worktree `~/Development/zfs-objnum` on 5d7c42cfd now holds **v2**
+(alternate the touch CPU via taskset/cpuset, commands.cfg entries),
+uncommitted, diff `~/Development/offspare-local/send-encrypted-
+freeobjects-v2.diff`. v1 (tries=256) is committed as 4a8843773 in
+`claude/verify_x40` and failed in CI; do not post v1.
 
 ## Local experiment trees (2026-10-17)
 

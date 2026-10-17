@@ -2871,3 +2871,17 @@ dbgmsg "DEBUG objalloc from= to=" in `~/Development/zfs-master`.
   not "full". Diff with counters:
   `~/Development/offspare-local/objalloc-refill-fix-with-counters.diff`.
   100 passes running (dnode-fix1.tsv).
+- **Refill fix attempt 1 (dnode-fix1.tsv, 100 passes): not good enough.**
+  Overwritten chunks 642 -> 0, passes with holes 15 -> 1, but that one
+  pass FAILED with 34201 empty slots (14%): dnode_hold_free_misses 12173
+  (normally 1), about 330 extra chunk refills. Likely: taking over a
+  changed slot value can land beyond the slot's own chunk (a stray
+  atomic_add past the chunk end), in another chunk's region, and the
+  allocations then walk through occupied slots and cascade. The
+  original code repairs that by refilling. A correct fix needs to know
+  the chunk a per-CPU slot owns (e.g. a per-slot chunk end next to
+  os_obj_next_percpu). Not started.
+- wrouesnel 956f6a607 (crtime_001_pos, GNU touch open + utimensat):
+  same family as our ctime fix (second boundary) but a different test
+  and cause. Upstream crtime_001_pos failures: 2, both ubuntu24. Not
+  Alpine. User: no need to dig further.

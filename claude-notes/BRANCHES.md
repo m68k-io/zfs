@@ -1056,7 +1056,29 @@ all authored and committed as Alexander Moch:
    counters, -nocheck, watchdog, other workflows dispatch only)
 Commits 1-4 are the candidates for upstream PRs, separate per fix.
 Smoke patch `~/Development/smoke-on-upstream-master.patch`, run
-alex-moch 39029609364. The 80-job patch is not yet written out
-(waits for the smoke timings). Committer identity is passed per
+alex-moch 39029609364. Later time-budgeted (deadline 250 min) and
+given the -dropcaches arm. Final: `claude/overnight_1017` ac4f273b0
+(80 jobs, patch `~/Development/overnight-80-on-upstream-master.patch`,
+pushed by the user as alex-moch `alpine/overnight` cd1148620, same
+tree, run 39057246579) and `claude/overnight_1017_m68k` 8ec2a8afd
+(40 jobs, pushed to m68k-io on the user's go, run 39057297225). Committer identity is passed per
 command via GIT_COMMITTER_NAME/EMAIL. Never set user.name in the
 shared repo config (zfs-meta is a worktree of the same repo).
+
+## `claude/offspare_5h`, `claude/offspare_5h_m68k` (2026-10-17, DEBUG)
+
+The 4 fixes + DEBUG with verify.run = zpool_offline_spare only,
+ITER 3000 (kmemleak) / 5000. Worktrees `~/Development/zfs-offspare5h`
+(40 jobs, patch `~/Development/offspare-5h-40-on-upstream-master.patch`,
+alex-moch run 39035105849) and `~/Development/zfs-offspare5h-m68k`
+(m68k-io run 39035021030). kmemleak jobs cancelled at 4:30 by the
+user. Result: 0 failures in 488,056 passes, see INVESTIGATIONS.md.
+
+## `claude/sanity_dropcaches`, `claude/sanity_dropcaches_m68k` (2026-10-17, DEBUG)
+
+The overnight branch with a 60 min deadline and no regression groups,
+to test the -dropcaches hook and the watchdog samples. Worktrees
+`~/Development/zfs-sanity` f3e09af4f (16 jobs, patch
+`~/Development/sanity-16-on-upstream-master.patch`, alex-moch run
+39050378129) and `~/Development/zfs-sanity-m68k` 609111fac (8 jobs,
+m68k-io run 39050298833). 24/24 green.

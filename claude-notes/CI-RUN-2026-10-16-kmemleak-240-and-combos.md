@@ -122,3 +122,25 @@ Run tests percentiles (min): All p10 178, p25 203, p50 239, p75 245,
 p90 255, p95 266, p99 283, max 298. 9V45 p10-p95 173-185, 7763 236-255,
 8573C p75 268, 8370C 271+ throughout. Without 8370C/8573C p99 would be
 about 260.
+
+## kmemleak scan creep over a run (evaluated 2026-10-17)
+
+Scan time per test = gap between a test's last output line and its
+result line in vm*/current/log. test-runner writes the result after the
+kmemleak scan. Setup/cleanup are not scanned and stay at 0.01 s
+(control). 250 of the 300 jobs had local artifacts (500 VMs, copies
+in `~/Development/logs/scan-drift-300/local/`, from the a2..a5
+directories above), script `~/Development/logs/scan-drift/scan_drift.py
+<dir>`.
+
+| hour of the run | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| median scan | 0.95 s | 1.40 s | 1.93 s | 2.66 s |
+
+Per VM, hour 3 / hour 0 = 2.98x (p10 1.90, p90 3.70). Scans are 9% of
+the runtime (p10 8%, p90 11%). The x60 run (mitigations on) went from
+1.33 s to 4.49 s by hour 4 (2.29x per VM). Cause: kmemleak walks every
+tracked object, and dentries/inodes left by earlier tests accumulate.
+Regenerated 2026-10-17 night: per_cpu.py output and scan_drift.py
+output match the numbers above (per-cpu-300.txt rewritten with the
+share column the script gained later, numbers unchanged).

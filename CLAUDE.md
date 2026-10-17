@@ -2026,7 +2026,8 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
 - **zvol_stress:** reproduced locally; issue draft with three options in
   `~/Development/offspare-local/zvol-stress-issue-draft.md`, not posted.
 - **ctime_001_pos:** patch ready, not posted.
-- **Overnight run: smoke passed, patches ready, not pushed.** Smoke
+- **Overnight run: smoke passed, patches pushed on 2026-10-17 ~20:45
+  (see "Big overnight run started").** Smoke
   alex-moch 39029609364 (16 jobs, 40 iterations): all builds OK, taskset
   everywhere (only pax missing outside Alpine, as before), check_end 0/1
   per arm, counters arrive (reset_outage 0), 2560 verify passes clean,
@@ -2065,7 +2066,8 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
 - **Enablement thread reply:** draft in
   `claude-notes/DRAFT-enablement-reply.md` (caution + 300-run numbers +
   4 optional additions, user chooses). Not posted.
-- **Game plan (2026-10-17 evening):**
+- **Game plan (2026-10-17 evening, steps 1-3 done, see the bullets
+  below):**
   1. ~20:15-20:30 local: the sanity runs (alex-moch 39050378129, m68k-io
      39050298833) and the 5 h runs (alex-moch 39035105849, m68k-io
      39035021030) finish. Watchers were set in this session. If they are
@@ -2208,7 +2210,8 @@ in `claude-notes/CI-RUN-2026-10-16-kmemleak-240-and-combos.md`.
   tunables, `~/Development/zfs-baseline` = plain 073e32604 userspace.
   The local A/B zloop is dropped (leak class is known upstream), the
   stop file stays. No pools are left over.
-- **Open decisions for the user:** post offline_spare fix; commit/post
-  send_encrypted, ctime, large_dnode fixes; file the zvol_stress issue;
+- **Open decisions for the user (as of 2026-10-17 night):** after the
+  overnight run, one upstream PR each for the offline_spare (2 commits),
+  large_dnode and send_encrypted fixes, plus ctime; file the zvol_stress issue;
   test-runner kmemleak-log patch; kmemleak off on Xeon 8370C/8573C if
   runtimes creep up.

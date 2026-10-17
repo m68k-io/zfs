@@ -3031,3 +3031,30 @@ fix), partial, data `~/Development/logs/dtlfix/`.
   regress-console.txt via tee (set -eu without pipefail, exit code from
   PIPESTATUS). Regression groups on one VM with kmemleak ~66 min
   (sum of split-run per-test times x2), fault alone ~36 min.
+
+## 2026-10-17 evening: the fixes in CI (5 h and sanity runs)
+
+- **5 h offline_spare runs** (alex-moch 39035105849, m68k-io
+  39035021030, all 4 fixes, verify.run = zpool_offline_spare only,
+  data `~/Development/logs/offspare5h/`): 0 failures in 488,056 passes
+  (kmemleak 128,056, without 280,000, almalinux9/10, debian12/13,
+  fedora44, ubuntu22/24/26 80,000). 95% upper bound with kmemleak
+  2.9e-5 per pass (two-sided Clopper-Pearson, as evaluate.py). zfs_vdev_debug_reset_outage = 24 (nokml 23,
+  distro 1): resets of resilver_txg that the old condition would have
+  skipped, i.e. the path-2 window occurs in CI and the fix keeps the
+  test green. Before the fixes: about 1 in 1000 to 7000 passes failed.
+  No VERIFY, panic, hang or kmemleak report. Every VM without
+  kmemleak reached 5000 passes, kmemleak VMs 1253-1875 by the cancel
+  (no stalls). One soft lockup on almalinux10 (CD-ROM poll in
+  disk_events_workfn -> ata_scsi_queuecmd, no ZFS frames, job green),
+  host stall.
+- **Sanity runs** (alex-moch 39050378129, m68k-io 39050298833, 60 min,
+  all three verify tests, data `~/Development/logs/sanity-full/`):
+  0 failures in about 19,000 passes, no panics, chunk_lost 0. The
+  -dropcaches hook does not change the per-allocation slowdown
+  (offline_spare body 1.47 vs 1.46 s on EPYC 7763), the scan gap grows
+  a bit less (0.56 -> 0.69 s vs 0.51 -> 0.61 s in 50 min). Compare arms
+  within one CPU type only: the first, unstratified numbers (1.09 vs
+  1.44 s) came from the CPU mix.
+- **Big overnight run** started: alex-moch 39057246579 (80 jobs),
+  m68k-io 39057297225 (40 jobs).

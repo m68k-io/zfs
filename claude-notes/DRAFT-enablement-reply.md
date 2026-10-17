@@ -42,7 +42,9 @@ over two forks:
 
 1. Fixes are coming (offline_spare, large_dnode_008_pos,
    send_encrypted_freeobjects), sent separately. No PR numbers until the
-   PRs exist. My advice: include, after the overnight run.
+   PRs exist. My advice: include, after the overnight run. Number for
+   it: with the offline_spare fixes 0 failures in 488,056 passes
+   (128,056 with kmemleak), before about 1 in 1000 to 7000.
 2. Tight headroom on the slowest CPU and the way out: kmemleak off on the
    slowest CPU types loses kmemleak coverage in only ~10% of runs. My
    advice: include.

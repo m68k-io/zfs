@@ -3191,6 +3191,39 @@ vdev_dirty_leaves(vdev_t *vd, int flags, uint64_t txg)
  * Therefore, that is all we keep on disk.  When loading the pool, or after
  * a configuration change, we generate all other DTLs from first principles.
  */
+/*
+ * DEBUG: count resets of a leaf's resilver or rebuild txg that the old
+ * condition (DTL_OUTAGE empty too) skips, by why the vdev cannot be
+ * read: the vdev_dtl_required() dry run (cant_read) or a real offline.
+ * zfs_vdev_debug_old_reset=1 (control arm) skips them as before.
+ */
+static uint_t zfs_vdev_debug_old_reset = 0;
+static uint64_t zfs_vdev_debug_reset_cantread = 0;
+static uint64_t zfs_vdev_debug_reset_offline = 0;
+static uint64_t zfs_vdev_debug_reset_other = 0;
+
+static boolean_t
+vdev_debug_reset_ok(vdev_t *vd)
+{
+	if (zfs_range_tree_is_empty(vd->vdev_dtl[DTL_OUTAGE]) ||
+	    (vd->vdev_resilver_txg == 0 && vd->vdev_rebuild_txg == 0))
+		return (B_TRUE);
+	if (vd->vdev_cant_read)
+		atomic_inc_64(&zfs_vdev_debug_reset_cantread);
+	else if (vd->vdev_offline)
+		atomic_inc_64(&zfs_vdev_debug_reset_offline);
+	else
+		atomic_inc_64(&zfs_vdev_debug_reset_other);
+	zfs_dbgmsg("DEBUG reset vdev %s resilver_txg=%llu rebuild_txg=%llu "
+	    "cant_read=%d offline=%d state=%d old=%u",
+	    vd->vdev_path ? vd->vdev_path : "?",
+	    (u_longlong_t)vd->vdev_resilver_txg,
+	    (u_longlong_t)vd->vdev_rebuild_txg, (int)vd->vdev_cant_read,
+	    (int)vd->vdev_offline, (int)vd->vdev_state,
+	    zfs_vdev_debug_old_reset);
+	return (!zfs_vdev_debug_old_reset);
+}
+
 void
 vdev_dtl_dirty(vdev_t *vd, vdev_dtl_type_t t, uint64_t txg, uint64_t size)
 {
@@ -3512,7 +3545,8 @@ vdev_dtl_reassess_impl(vdev_t *vd, uint64_t txg, uint64_t scrub_txg,
 		 * has all the data.
 		 */
 		if (txg != 0 &&
-		    zfs_range_tree_is_empty(vd->vdev_dtl[DTL_MISSING])) {
+		    zfs_range_tree_is_empty(vd->vdev_dtl[DTL_MISSING]) &&
+		    vdev_debug_reset_ok(vd)) {
 			if (vd->vdev_rebuild_txg != 0) {
 				vd->vdev_rebuild_txg = 0;
 				vdev_config_dirty(vd->vdev_top);
@@ -7328,3 +7362,15 @@ ZFS_MODULE_PARAM_CALL(zfs_vdev, zfs_vdev_, max_auto_ashift,
 ZFS_MODULE_PARAM_CALL(zfs_vdev, zfs_vdev_, raidz_impl,
 		param_set_raidz_impl, param_get_raidz_impl, ZMOD_RW,
 		"RAIDZ implementation");
+
+ZFS_MODULE_PARAM(zfs_vdev, zfs_vdev_, debug_old_reset, UINT, ZMOD_RW,
+	"DEBUG: skip resilver_txg resets while DTL_OUTAGE is not empty");
+
+ZFS_MODULE_PARAM(zfs_vdev, zfs_vdev_, debug_reset_cantread, U64, ZMOD_RD,
+	"DEBUG: resets the old condition skips, vdev_dtl_required() dry run");
+
+ZFS_MODULE_PARAM(zfs_vdev, zfs_vdev_, debug_reset_offline, U64, ZMOD_RD,
+	"DEBUG: resets the old condition skips, vdev offline");
+
+ZFS_MODULE_PARAM(zfs_vdev, zfs_vdev_, debug_reset_other, U64, ZMOD_RD,
+	"DEBUG: resets the old condition skips, other reason");

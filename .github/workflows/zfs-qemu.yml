@@ -66,8 +66,11 @@ jobs:
             os_selection='["freebsd14-4r", "freebsd14-5s", "freebsd15-1r", "freebsd15-1s", "freebsd16-0c"]'
             ;;
           *)
-            # default list
-            os_selection='["almalinux8", "almalinux9", "almalinux10", "alpine3-24", "debian12", "debian13", "fedora43", "fedora44", "freebsd14-4r", "freebsd15-1r", "freebsd15-1s", "freebsd16-0c", "ubuntu22", "ubuntu24", "ubuntu26"]'
+            # DEBUG: zpool_offline_spare in a loop on Alpine without
+            # kmemleak, 20 jobs: resilver_txg reset as before (ctl, 6) and
+            # with "Reset vdev_resilver_txg once DTL_MISSING is empty"
+            # alone (c2, 14), interleaved.
+            os_selection='["alpine3-24-nokmemleak-ctl-01", "alpine3-24-nokmemleak-c2-02", "alpine3-24-nokmemleak-c2-03", "alpine3-24-nokmemleak-ctl-04", "alpine3-24-nokmemleak-c2-05", "alpine3-24-nokmemleak-c2-06", "alpine3-24-nokmemleak-c2-07", "alpine3-24-nokmemleak-ctl-08", "alpine3-24-nokmemleak-c2-09", "alpine3-24-nokmemleak-c2-10", "alpine3-24-nokmemleak-ctl-11", "alpine3-24-nokmemleak-c2-12", "alpine3-24-nokmemleak-c2-13", "alpine3-24-nokmemleak-c2-14", "alpine3-24-nokmemleak-ctl-15", "alpine3-24-nokmemleak-c2-16", "alpine3-24-nokmemleak-c2-17", "alpine3-24-nokmemleak-ctl-18", "alpine3-24-nokmemleak-c2-19", "alpine3-24-nokmemleak-c2-20"]'
             ;;
           esac
 

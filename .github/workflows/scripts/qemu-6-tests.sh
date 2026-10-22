@@ -254,7 +254,23 @@ df -h > df-prerun.txt
 RV=0
 KMEMLEAK=""
 grep -qw kmemleak=on /proc/cmdline && KMEMLEAK="-m"
-$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+# DEBUG: instead of the test suite, both VMs repeat zpool_offline_spare
+# (offspare.run) until a deadline 240 min from here. Arm *-ctl-* resets
+# resilver_txg only with DTL_OUTAGE empty as before the fix
+# (zfs_vdev_debug_old_reset=1), arm *-c2-* runs the fix. The watcher
+# saves the counters and stops test-runner at the deadline or on a ZFS
+# assertion. Neither stop counts as a failure.
+case "$OS" in
+  *-ctl-*) echo 1 | sudo tee /sys/module/zfs/parameters/zfs_vdev_debug_old_reset ;;
+esac
+echo 67108864 | sudo tee /sys/module/zfs/parameters/zfs_dbgmsg_maxsize
+export DEBUG_DEADLINE=$(( $(date +%s) + 240 * 60 ))
+$HOME/zfs/.github/workflows/scripts/qemu-6-offspare-watch.sh &
+WATCHER=$!
+$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -r offspare -I 100000 || RV=$?
+[ -e /var/tmp/deadline-reached.txt ] && RV=0
+[ -e /var/tmp/watchdog-panic.txt ] && RV=0
+kill $WATCHER 2>/dev/null || true
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

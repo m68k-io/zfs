@@ -406,7 +406,7 @@ if [ -n "$CUSTOM_BRANCH" ] ; then
 fi
 
 # build
-case "$OS" in
+case "${OS%-st-*}" in
   freebsd*)
     freebsd "$extra"
     ;;

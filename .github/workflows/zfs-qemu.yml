@@ -66,8 +66,10 @@ jobs:
             os_selection='["freebsd14-4r", "freebsd14-5s", "freebsd15-1r", "freebsd15-1s", "freebsd16-0c"]'
             ;;
           *)
-            # default list
-            os_selection='["almalinux8", "almalinux9", "almalinux10", "alpine3-24", "debian12", "debian13", "fedora43", "fedora44", "freebsd14-4r", "freebsd15-1r", "freebsd15-1s", "freebsd16-0c", "ubuntu22", "ubuntu24", "ubuntu26"]'
+            # DEBUG: the full suite twice on every OS (-st-01, -st-02) and
+            # the history group in a loop on 10 Linux distros (-st-loop-NN),
+            # 40 jobs.
+            os_selection='["almalinux8-st-01", "almalinux9-st-01", "almalinux10-st-01", "alpine3-24-st-01", "debian12-st-01", "debian13-st-01", "fedora43-st-01", "fedora44-st-01", "freebsd14-4r-st-01", "freebsd15-1r-st-01", "freebsd15-1s-st-01", "freebsd16-0c-st-01", "ubuntu22-st-01", "ubuntu24-st-01", "ubuntu26-st-01", "almalinux8-st-02", "almalinux9-st-02", "almalinux10-st-02", "alpine3-24-st-02", "debian12-st-02", "debian13-st-02", "fedora43-st-02", "fedora44-st-02", "freebsd14-4r-st-02", "freebsd15-1r-st-02", "freebsd15-1s-st-02", "freebsd16-0c-st-02", "ubuntu22-st-02", "ubuntu24-st-02", "ubuntu26-st-02", "almalinux8-st-loop-01", "almalinux9-st-loop-02", "almalinux10-st-loop-03", "alpine3-24-st-loop-04", "debian12-st-loop-05", "debian13-st-loop-06", "fedora44-st-loop-07", "ubuntu22-st-loop-08", "ubuntu24-st-loop-09", "ubuntu26-st-loop-10"]'
             ;;
           esac
 

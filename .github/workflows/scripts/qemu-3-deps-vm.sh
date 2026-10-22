@@ -178,7 +178,7 @@ if [ "$1" == "--poweroff" ] ; then
 fi
 
 # Install dependencies
-case "$1" in
+case "${1%-st-*}" in
   almalinux8)
     echo "##[group]Enable epel and powertools repositories"
     sudo dnf config-manager -y --set-enabled powertools
@@ -278,7 +278,7 @@ test -z "${ONLY_DEPS:-}" || exit 0
 
 # Start services
 echo "##[group]Enable services"
-case "$1" in
+case "${1%-st-*}" in
   alpine*)
     sudo -E rc-update add qemu-guest-agent
     sudo -E rc-update add nfs
@@ -334,7 +334,7 @@ CMDLINE="console=tty0 console=ttyS0,115200n8"
 CMDLINE="$CMDLINE selinux=0"
 CMDLINE="$CMDLINE random.trust_cpu=on"
 CMDLINE="$CMDLINE no_timer_check"
-case "$1" in
+case "${1%-st-*}" in
   almalinux*|centos*|fedora*)
     GRUB_CFG="/boot/grub2/grub.cfg"
     GRUB_MKCONFIG="grub2-mkconfig"
@@ -360,7 +360,7 @@ case "$1" in
     ;;
 esac
 
-case "$1" in
+case "${1%-st-*}" in
   alpine*)
     # kmemleak on and CPU mitigations off by default. The -nokmemleak
     # and -mitigations suffixes keep the kernel's defaults instead.

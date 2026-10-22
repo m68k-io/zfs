@@ -10,7 +10,7 @@ set -eu
 OS="$1"
 
 # OS variant (virt-install --os-variant list)
-OSv=$OS
+OSv=${OS%-st-*}
 
 # FreeBSD urls's
 FREEBSD_REL="https://download.freebsd.org/releases/CI-IMAGES"
@@ -30,7 +30,7 @@ OPTS[0]=""
 OPTS[1]=""
 ALT_URL=""
 
-case "$OS" in
+case "${OS%-st-*}" in
   almalinux8)
     OSNAME="AlmaLinux 8"
     URL="https://repo.almalinux.org/almalinux/8/cloud/x86_64/images/AlmaLinux-8-GenericCloud-latest.x86_64.qcow2"

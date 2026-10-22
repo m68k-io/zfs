@@ -183,7 +183,7 @@ if [ "$1" == "quick" ] ; then
 fi
 
 export PATH="$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/sbin:/usr/local/bin"
-case "$OS" in
+case "${OS%-st-*}" in
   freebsd*)
     TDIR="/usr/local/share/zfs"
     sudo kldstat -n zfs 2>/dev/null && sudo kldunload zfs
@@ -218,7 +218,7 @@ case "$OS" in
 esac
 
 # Distribution-specific settings.
-case "$OS" in
+case "${OS%-st-*}" in
   almalinux9|almalinux10|centos-stream*)
     # Enable io_uring on Enterprise Linux 9 and 10.
     sudo sysctl kernel.io_uring_disabled=0 > /dev/null
@@ -254,7 +254,23 @@ df -h > df-prerun.txt
 RV=0
 KMEMLEAK=""
 grep -qw kmemleak=on /proc/cmdline && KMEMLEAK="-m"
-$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+# DEBUG: jobs *-st-loop-* repeat the history group with the TSD pid
+# reuse test (tsd-loop.run) until a deadline 180 min from here, where
+# test-runner is stopped. The deadline stop does not count as a failure.
+# All other jobs run the normal test suite.
+case "$OS" in
+  *-st-loop-*)
+    ( sleep $((180 * 60)); date -u > /var/tmp/deadline-reached.txt
+      sudo pkill -f '/test-runne[r]\.py' ) &
+    STOPPER=$!
+    $TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -r tsd-loop -I 100000 || RV=$?
+    [ -e /var/tmp/deadline-reached.txt ] && RV=0
+    kill $STOPPER 2>/dev/null || true
+    ;;
+  *)
+    $TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+    ;;
+esac
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

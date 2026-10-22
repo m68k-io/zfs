@@ -21,7 +21,7 @@ CPUSET=("0,1" "2,3")
 OPTS[0]=""
 OPTS[1]=""
 
-case "$OS" in
+case "${OS%-st-*}" in
   freebsd*)
     # FreeBSD needs only 6GiB
     RAM=6
